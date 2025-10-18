@@ -1,0 +1,33 @@
+[package]
+name = "llvmlisp"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = [
+    "crates/stencil-macros",
+    "crates/stencils",
+    "crates/stencils-bin",
+]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+stencil-macros = { version = "0.1.0", path = "crates/stencil-macros" }
+stencils = { version = "0.1.0", path = "crates/stencils" }
+stencils-bin = { version = "0.1.0", path = "crates/stencils-bin" }
+
+### Stencil generation
+# Macros
+darling = "0.21.3"
+proc-macro2 = "1.0.101"
+quote = "1.0.41"
+syn = { version = "2.0.106", features = ["full"] }
+# Object file parsing
+ar = "0.9.0"
+object = "0.37.3"
+# JIT
+memmap2 = "0.9.8"
+
+[dependencies]

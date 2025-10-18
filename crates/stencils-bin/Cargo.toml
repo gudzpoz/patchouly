@@ -1,0 +1,11 @@
+[package]
+name = "stencils-bin"
+version = "0.1.0"
+edition.workspace = true
+
+[build-dependencies]
+ar.workspace = true
+object.workspace = true
+
+[dependencies]
+memmap2.workspace = true
