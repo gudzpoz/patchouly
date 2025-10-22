@@ -1,0 +1,8 @@
+[book]
+authors = ["gudzpoz"]
+language = "en"
+src = "src"
+title = "Writing A Copy-and-patch JIT Compiler in Rust"
+
+[output.html.playground]
+runnable = false
