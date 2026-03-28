@@ -34,4 +34,7 @@ object = "0.37.3"
 # JIT
 memmap2 = "0.9.8"
 
+### Tests
+pretty_assertions = "1.4.1"
+
 [dependencies]

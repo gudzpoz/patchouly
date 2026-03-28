@@ -71,9 +71,10 @@ impl syn::parse::Parse for StencilFamily {
 
 #[derive(Debug)]
 enum CallArg {
-    Stack,
     Arg(u16),
     Hole(u16),
+    Stack,
+    Target(u16),
 }
 #[derive(Debug)]
 struct FnSignature {
@@ -81,18 +82,22 @@ struct FnSignature {
     inputs: u16,
     outputs: u16,
     hole_names: Vec<syn::Ident>,
+    target_enum: Option<syn::Type>,
+    target_names: Vec<syn::Ident>,
 }
 impl FnSignature {
     fn parse(sig: &mut syn::Signature) -> syn::Result<Self> {
         let mut call_args = vec![];
         let mut inputs = 0;
         let mut hole_names = vec![];
-        for ty in sig.inputs.iter_mut() {
-            let syn::FnArg::Typed(ty) = ty else {
-                return syn::Result::Err(syn::Error::new_spanned(ty, "expected type"));
+        let mut target_enum = None;
+        let mut target_names = vec![];
+        for arg in sig.inputs.iter_mut() {
+            let syn::FnArg::Typed(ty) = arg else {
+                return syn::Result::Err(syn::Error::new_spanned(arg, "expected type"));
             };
 
-            enum Kind { Hole, Arg, Stack }
+            enum Kind { Hole, Arg, Stack, Target }
             let mut kind = Kind::Arg;
             for (attr_i, attr) in ty.attrs.iter().enumerate() {
                 let path = attr.path();
@@ -104,6 +109,16 @@ impl FnSignature {
                 if path.is_ident("stack") {
                     ty.attrs.remove(attr_i);
                     kind = Kind::Stack;
+                    break;
+                }
+                if path.is_ident("target") {
+                    ty.attrs.remove(attr_i);
+                    *ty.ty = target_enum.get_or_insert_with(
+                        || syn::Type::Path(syn::TypePath::from_string(
+                            &format!("{}__targets", sig.ident),
+                        ).unwrap()),
+                    ).clone();
+                    kind = Kind::Target;
                     break;
                 }
             }
@@ -120,15 +135,31 @@ impl FnSignature {
                     CallArg::Arg(i as u16)
                 }
                 Kind::Stack => CallArg::Stack,
+                Kind::Target => {
+                    let target_i = target_names.len();
+                    let syn::Pat::Ident(name) = ty.pat.as_ref() else {
+                        return syn::Result::Err(syn::Error::new_spanned(arg, "expected name"));
+                    };
+                    target_names.push(syn::Ident::new(
+                        &format!("target{}_{}", target_i, name.ident), Span::call_site(),
+                    ));
+                    CallArg::Target(target_i as u16)
+                }
             });
         }
-        let outputs = match &sig.output {
-            syn::ReturnType::Default => 0,
-            syn::ReturnType::Type(_rarrow, ty) => match ty.as_ref() {
-                syn::Type::Tuple(type_tuple) => type_tuple.elems.len(),
-                syn::Type::Path(_path) => 1,
-                _ => todo!("unsupported return type: {:?}", ty),
-            },
+
+        let outputs = if let Some(target_enum) = &target_enum {
+            sig.output = syn::ReturnType::Type(syn::token::RArrow::default(), Box::new(target_enum.clone()));
+            0
+        } else {
+            match &sig.output {
+                syn::ReturnType::Default => 0,
+                syn::ReturnType::Type(_rarrow, ty) => match ty.as_ref() {
+                    syn::Type::Tuple(type_tuple) => type_tuple.elems.len(),
+                    syn::Type::Path(_path) => 1,
+                    _ => todo!("unsupported return type: {:?}", ty),
+                },
+            }
         };
         if inputs + hole_names.len() + outputs + 1 > u16::MAX as usize {
             return Err(syn::Error::new_spanned(sig, "too many arguments"));
@@ -138,6 +169,8 @@ impl FnSignature {
             inputs: inputs as u16,
             outputs: outputs as u16,
             hole_names,
+            target_enum,
+            target_names,
         })
     }
 }
@@ -152,13 +185,28 @@ impl StencilFamily {
     pub fn expand(mut self) -> TokenStream {
         let perm = RegPermutation::new(self.sig.inputs, self.sig.outputs, self.options.registers());
         let orig = self.orig.clone();
+        let target_enum = self.generate_target_enum();
         let stencils = perm.map(|perm| self.generate_stencil(&perm));
 
         quote! {
+            #target_enum
             #[inline]
             #orig
 
             #(#stencils)*
+        }
+    }
+
+    fn generate_target_enum(&self) -> TokenStream {
+        let Some(target_enum) = &self.sig.target_enum else {
+            return quote! {};
+        };
+
+        let names = &self.sig.target_names;
+        quote! {
+            pub enum #target_enum {
+                #(#names),*
+            }
         }
     }
 
@@ -218,6 +266,9 @@ impl StencilFamily {
                 CallArg::Stack => {
                     stack.get_or_init(|| syn::Ident::new("stack", Span::call_site()))
                 }
+                CallArg::Target(i) => {
+                    &self.sig.target_names[*i as usize]
+                }
             });
         }
         let rets = sig.io_locations[sig.inputs_num..].iter().map(|i| match i {
@@ -228,7 +279,9 @@ impl StencilFamily {
                 &sig.stack_arg_names[*i as usize]
             },
         });
-        let rets = if rets.len() == 1 {
+        let rets = if self.sig.target_enum.is_some() {
+            quote! { target }
+        } else if rets.len() == 1 {
             quote!(#(#rets),*)
         } else {
             quote!{ (#(#rets),*) }
@@ -275,12 +328,36 @@ impl StencilFamily {
             pub static #sym: [u8; 0x10000];
         }).collect();
 
+        if let Some(target_enum) = &self.sig.target_enum {
+            for name in &self.sig.target_names {
+                hole_inits.push(quote! {
+                    let #name = #target_enum::#name;
+                });
+            }
+        }
+
         [hole_defs, hole_inits, hole_outputs]
     }
 
     fn generate_next(&self, arg_list: &TokenStream,sig: &StencilSignature) -> [TokenStream; 3] {
         let next_call_args = &sig.reg_names;
-        if self.options.returns {
+        if let Some(target_enum) = &self.sig.target_enum {
+            let mut target_defs = Vec::with_capacity(self.sig.target_names.len());
+            let mut match_branches = Vec::with_capacity(self.sig.target_names.len());
+            for name in &self.sig.target_names {
+                target_defs.push(quote! {
+                    pub fn #name(stack: &mut super::Stack #arg_list);
+                });
+                match_branches.push(quote! {
+                    #target_enum::#name => become imp::#name(stack #(, #next_call_args.into())*),
+                })
+            }
+            [quote! {()}, quote! { #(#target_defs)* }, quote! {
+                match target {
+                    #(#match_branches)*
+                }
+            }]
+        } else if self.options.returns {
             [sig.return_type(), quote! {}, quote! {
                 (#(#next_call_args.into()),*)
             }]
@@ -393,18 +470,195 @@ impl Regs {
 
 #[cfg(test)]
 mod test {
+    use pretty_assertions::assert_eq;
+    use syn::parse::{Parse, Parser};
+
     use super::*;
+
+    fn prettify(tokens: TokenStream) -> String {
+        match syn::File::parse.parse2(tokens) {
+            Ok(file) => prettyplease::unparse(&file),
+            Err(err) => panic!("failed to parse: {}", err),
+        }
+    }
+
+    fn assert_expansion(regs: u16, before: TokenStream, after: TokenStream) {
+        let mut stencil: StencilFamily = syn::parse2(before).unwrap();
+        stencil.options.registers = regs;
+        let expanded = stencil.expand();
+        assert_eq!(prettify(expanded), prettify(after));
+    }
 
     #[test]
     fn test_simple() {
-        let stream = quote! {
-            pub fn add(#[stack] stack: &mut Stack, #[hole] n: usize) {
-                stack.allocate(n);
+        assert_expansion(1, quote!{
+            pub fn add1(a: usize) -> usize {
+                a + 1
             }
-        };
+        }, quote! {
+            #[inline]
+            pub fn add1(a: usize) -> usize { a + 1 }
+            #[unsafe(no_mangle)]
+            pub unsafe extern "rust-preserve-none" fn add1__0_0(stack: &mut Stack) -> () {
+                mod imp { unsafe extern "rust-preserve-none" {
+                    pub static add1__stack0: [u8; 0x10000];
+                    pub static add1__stack1: [u8; 0x10000];
+                    pub fn copy_and_patch_next(stack: &mut super::Stack);
+                } }
+                let stack0 = stack.get(imp::add1__stack0.as_ptr() as usize);
+                let stack1 = add1(stack0.into());
+                stack.set(imp::add1__stack1.as_ptr() as usize, stack1.into());
+                become imp::copy_and_patch_next(stack);
+            }
+        });
+    }
 
-        let mut stencil: StencilFamily = syn::parse2(stream).unwrap();
-        stencil.options.registers = 2;
-        println!("{}", stencil.expand());
+    #[test]
+    fn test_two_args() {
+        assert_expansion(1, quote! {
+            pub fn add2(a: usize, b: usize) -> usize {
+                a + b
+            }
+        }, quote! {
+            #[inline]
+            pub fn add2(a: usize, b: usize) -> usize { a + b }
+            #[unsafe(no_mangle)]
+            pub unsafe extern "rust-preserve-none" fn add2__0_0_0(stack: &mut Stack) -> () {
+                mod imp { unsafe extern "rust-preserve-none" {
+                    pub static add2__stack0: [u8; 0x10000];
+                    pub static add2__stack1: [u8; 0x10000];
+                    pub static add2__stack2: [u8; 0x10000];
+                    pub fn copy_and_patch_next(stack: &mut super::Stack);
+                } }
+                let stack0 = stack.get(imp::add2__stack0.as_ptr() as usize);
+                let stack1 = stack.get(imp::add2__stack1.as_ptr() as usize);
+                let stack2 = add2(stack0.into(), stack1.into());
+                stack.set(imp::add2__stack2.as_ptr() as usize, stack2.into());
+                become imp::copy_and_patch_next(stack);
+            }
+        });
+    }
+
+    #[test]
+    fn test_one_reg_in() {
+        assert_expansion(2, quote! {
+            pub fn consume(_a: usize) {
+            }
+        }, quote! {
+            #[inline]
+            pub fn consume(_a: usize) {}
+            #[unsafe(no_mangle)]
+            pub unsafe extern "rust-preserve-none" fn consume__0(stack: &mut Stack) -> () {
+                mod imp { unsafe extern "rust-preserve-none" {
+                    pub static consume__stack0: [u8; 0x10000];
+                    pub fn copy_and_patch_next(stack: &mut super::Stack);
+                } }
+                let stack0 = stack.get(imp::consume__stack0.as_ptr() as usize);
+                let () = consume(stack0.into());
+                become imp::copy_and_patch_next(stack);
+            }
+            #[unsafe(no_mangle)]
+            pub unsafe extern "rust-preserve-none" fn consume__1(stack: &mut Stack, in0: usize) -> () {
+                mod imp { unsafe extern "rust-preserve-none" {
+                    pub fn copy_and_patch_next(stack: &mut super::Stack, in0: usize);
+                } }
+                let () = consume(in0.into());
+                become imp::copy_and_patch_next(stack, in0.into());
+            }
+        });
+    }
+
+    #[test]
+    fn test_one_reg_out() {
+        assert_expansion(2, quote! {
+            pub fn zero() -> usize {
+                0
+            }
+        }, quote! {
+            #[inline]
+            pub fn zero() -> usize {
+                0
+            }
+            #[unsafe(no_mangle)]
+            pub unsafe extern "rust-preserve-none" fn zero__0(stack: &mut Stack) -> () {
+                mod imp { unsafe extern "rust-preserve-none" {
+                    pub static zero__stack0: [u8; 0x10000];
+                    pub fn copy_and_patch_next(stack: &mut super::Stack);
+                } }
+                let stack0 = zero();
+                stack.set(imp::zero__stack0.as_ptr() as usize, stack0.into());
+                become imp::copy_and_patch_next(stack);
+            }
+            #[unsafe(no_mangle)]
+            pub unsafe extern "rust-preserve-none" fn zero__1(stack: &mut Stack, out0: usize) -> () {
+                mod imp { unsafe extern "rust-preserve-none" {
+                    pub fn copy_and_patch_next(stack: &mut super::Stack, out0: usize);
+                } }
+                let out0 = zero();
+                become imp::copy_and_patch_next(stack, out0.into());
+            }
+        });
+    }
+
+    #[test]
+    fn test_hole_out() {
+        assert_expansion(1, quote! {
+            pub fn iconst(#[hole] c: usize) -> usize {
+                c
+            }
+        }, quote! {
+            #[inline]
+            pub fn iconst(c: usize) -> usize { c }
+            #[unsafe(no_mangle)]
+            pub unsafe extern "rust-preserve-none" fn iconst__0(stack: &mut Stack) -> () {
+                mod imp { unsafe extern "rust-preserve-none" {
+                    pub static iconst__hole0: [u8; 0x10000];
+                    pub static iconst__stack0: [u8; 0x10000];
+                    pub fn copy_and_patch_next(stack: &mut super::Stack);
+                } }
+                let hole0 = imp::iconst__hole0.as_ptr() as usize;
+                let stack0 = iconst(hole0.into());
+                stack.set(imp::iconst__stack0.as_ptr() as usize, stack0.into());
+                become imp::copy_and_patch_next(stack);
+            }
+        });
+    }
+
+    #[test]
+    fn test_if_else() {
+        assert_expansion(1, quote! {
+            pub fn if_else(a: usize, #[target] then: _, #[target] or_else: _) -> _ {
+                if a == 0 { then } else { or_else }
+            }
+        }, quote! {
+            pub enum if_else__targets {
+                target0_then,
+                target1_or_else,
+            }
+            #[inline]
+            pub fn if_else(
+                a: usize,
+                then: if_else__targets,
+                or_else: if_else__targets,
+            ) -> if_else__targets {
+                if a == 0 { then } else { or_else }
+            }
+            #[unsafe(no_mangle)]
+            pub unsafe extern "rust-preserve-none" fn if_else__0(stack: &mut Stack) -> () {
+                mod imp { unsafe extern "rust-preserve-none" {
+                    pub static if_else__stack0: [u8; 0x10000];
+                    pub fn target0_then(stack: &mut super::Stack);
+                    pub fn target1_or_else(stack: &mut super::Stack);
+                } }
+                let stack0 = stack.get(imp::if_else__stack0.as_ptr() as usize);
+                let target0_then = if_else__targets::target0_then;
+                let target1_or_else = if_else__targets::target1_or_else;
+                let target = if_else(stack0.into(), target0_then.into(), target1_or_else.into());
+                match target {
+                    if_else__targets::target0_then => become imp::target0_then(stack),
+                    if_else__targets::target1_or_else => become imp::target1_or_else(stack),
+                }
+            }
+        });
     }
 }
