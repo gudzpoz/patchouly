@@ -5,18 +5,22 @@ edition = "2024"
 
 [workspace]
 members = [
-    "crates/stencil-macros",
-    "crates/stencils",
-    "crates/stencils-bin",
+    "crates/patchouly-macros",
+
+    "examples/calc-stencils",
 ]
 
 [workspace.package]
 edition = "2024"
 
 [workspace.dependencies]
-stencil-macros = { version = "0.1.0", path = "crates/stencil-macros" }
-stencils = { version = "0.1.0", path = "crates/stencils" }
-stencils-bin = { version = "0.1.0", path = "crates/stencils-bin" }
+patchouly-macros = { version = "0.1.0", path = "crates/patchouly-macros" }
+example-calc-stencils = { path = "examples/calc" }
+
+### Common
+itertools = "0.14.0"
+once_cell = "1.21.4"
+smallvec = "1.15.1"
 
 ### Stencil generation
 # Macros

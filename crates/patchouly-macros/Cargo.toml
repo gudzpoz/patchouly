@@ -1,0 +1,17 @@
+[package]
+name = "patchouly-macros"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+path = "src/lib.rs"
+proc-macro = true
+
+[dependencies]
+darling.workspace = true
+itertools.workspace = true
+once_cell.workspace = true
+proc-macro2.workspace = true
+quote.workspace = true
+smallvec.workspace = true
+syn.workspace = true
