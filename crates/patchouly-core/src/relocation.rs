@@ -44,6 +44,8 @@ pub enum RelocationEncoding {
     Invalid = 0,
     /// Plain value
     Generic,
+    /// Sign extended
+    X86Signed,
     /// Upper limit
     Unknown,
 }

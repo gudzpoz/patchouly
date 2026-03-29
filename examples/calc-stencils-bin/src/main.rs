@@ -6,7 +6,7 @@ fn main() {}
 mod tests {
     use patchouly_core::{
         Stencil,
-        stencils::{Variable, index_to_io_lossy},
+        stencils::{Variable, index_to_io_lossy, stencils_len},
     };
 
     use super::stencils;
@@ -43,6 +43,58 @@ mod tests {
         };
     }
 
+    #[test]
+    fn test_has_code() {
+        let families = [
+            get_stencils!(stencils::CALC_ADD),
+            get_stencils!(stencils::CALC_ADD1),
+            get_stencils!(stencils::CALC_ADD_CONST),
+            get_stencils!(stencils::CALC_STACK_ALLOC),
+            get_stencils!(stencils::CALC_STACK_POP),
+            get_stencils!(stencils::CALC_IF_EQ),
+        ];
+
+        for (name, family, meta) in &families {
+            let mut empty_count = 0;
+            for (i, s) in family.iter().enumerate() {
+                if s.into_bits() == 0 {
+                    let (inputs, outputs) = index_to_io_lossy(i, meta.0, meta.1, meta.2);
+                    assert!(
+                        has_var_dups(&inputs) || has_var_dups(&outputs),
+                        "duplicate variables: {} {} {:?} {:?}",
+                        name,
+                        i,
+                        inputs,
+                        outputs
+                    );
+                    empty_count += 1;
+                    continue;
+                }
+                assert!(
+                    !s.code(stencils::CALC_STENCIL_LIBRARY.code).is_empty(),
+                    "empty code: {} {:?}",
+                    name,
+                    s,
+                );
+            }
+            assert!(empty_count * 2 < family.len());
+        }
+    }
+
+    #[test]
+    fn test_empty_count() {
+        assert_eq!(1000000, stencils_len(6, 0, 10));
+        let mut empty_count = 0;
+        for i in 0..1000000 {
+            let (inputs, _outputs) = index_to_io_lossy(i, 6, 0, 10);
+            if has_var_dups(&inputs) {
+                empty_count += 1;
+            }
+        }
+        // TODO: make the index more compact?
+        assert_eq!(empty_count, 792225);
+    }
+
     fn has_var_dups(vars: &[Variable]) -> bool {
         let mut bitset = 0usize;
         for var in vars {
@@ -56,38 +108,5 @@ mod tests {
             bitset |= 1 << bit;
         }
         false
-    }
-
-    #[test]
-    fn test_has_code() {
-        let families = [
-            get_stencils!(stencils::CALC_ADD),
-            get_stencils!(stencils::CALC_ADD1),
-            get_stencils!(stencils::CALC_ADD_CONST),
-            get_stencils!(stencils::CALC_STACK_ALLOC),
-        ];
-
-        for (name, family, meta) in families {
-            for (i, s) in family.iter().enumerate() {
-                if s.into_bits() == 0 {
-                    let (inputs, outputs) = index_to_io_lossy(i, meta.0, meta.1, meta.2);
-                    assert!(
-                        has_var_dups(&inputs) || has_var_dups(&outputs),
-                        "duplicate variables: {} {} {:?} {:?}",
-                        name,
-                        i,
-                        inputs,
-                        outputs
-                    );
-                    continue;
-                }
-                assert!(
-                    !s.code(stencils::CALC_STENCIL_LIBRARY.code).is_empty(),
-                    "empty code: {} {:?}",
-                    name,
-                    s,
-                );
-            }
-        }
     }
 }

@@ -210,9 +210,7 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
                 let Some(patch) = get_patch_type(name, reloc) else {
                     continue 'next;
                 };
-                let Some(reloc) = new_relocation(offset, &info, patch) else {
-                    continue 'next;
-                };
+                let reloc = new_relocation(offset, &info, patch)?;
                 relocations.push(reloc);
             }
 
@@ -261,7 +259,7 @@ fn get_data<'file>(
         .map(|data| (section, data))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct Metadata {
     inputs: u16,
     outputs: u16,
@@ -300,6 +298,7 @@ fn parse_name(sym_name: &str) -> Option<(&str, StencilArgs)> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 enum PatchType {
     Hole(u16),
     Stack(u16),
@@ -341,30 +340,31 @@ fn new_relocation(
     offset: u64,
     relocation: &Relocation,
     patch: PatchType,
-) -> Option<StencilRelocation> {
+) -> Result<StencilRelocation, Box<dyn Error>> {
     let mut reloc = StencilRelocation::new();
 
-    let offset: u16 = offset.try_into().ok()?;
-    reloc.checked_set_offset(offset).ok()?;
+    let offset: u16 = offset.try_into()?;
+    reloc.checked_set_offset(offset)?;
 
     let encoding = match relocation.encoding() {
         RelocationEncoding::Generic => StencilRelocationEncoding::Generic,
-        _ => return None,
+        RelocationEncoding::X86Signed => StencilRelocationEncoding::X86Signed,
+        _ => return Err("unsupported relocation encoding".into()),
     };
-    reloc.checked_set_encoding(encoding).ok()?;
+    reloc.checked_set_encoding(encoding)?;
 
     let relative = match relocation.kind() {
         RelocationKind::Absolute => false,
         RelocationKind::Relative | RelocationKind::PltRelative => true,
-        _ => return None,
+        _ => return Err("unsupported relocation kind".into()),
     };
-    reloc.checked_set_relative(relative).ok()?;
+    reloc.checked_set_relative(relative)?;
 
     let size = relocation.size();
-    reloc.checked_set_size(size).ok()?;
+    reloc.checked_set_size(size)?;
 
-    let addend = relocation.addend().try_into().ok()?;
-    reloc.checked_set_addend(addend).ok()?;
+    let addend = relocation.addend().try_into()?;
+    reloc.checked_set_addend(addend)?;
 
     let (kind, extra) = match patch {
         PatchType::Hole(i) => (PatchKind::Hole, i),
@@ -372,10 +372,10 @@ fn new_relocation(
         PatchType::Target(i) => (PatchKind::Target, i),
         PatchType::Next => (PatchKind::Target, 0),
     };
-    reloc.checked_set_patch_kind(kind).ok()?;
-    reloc.checked_set_patch_id(extra).ok()?;
+    reloc.checked_set_patch_kind(kind)?;
+    reloc.checked_set_patch_id(extra)?;
 
-    Some(reloc)
+    Ok(reloc)
 }
 
 #[cfg(test)]
