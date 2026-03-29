@@ -1,0 +1,15 @@
+[package]
+name = "patchouly-build"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+patchouly-core.workspace = true
+
+ar.workspace = true
+memmap2.workspace = true
+object.workspace = true
+smallvec.workspace = true

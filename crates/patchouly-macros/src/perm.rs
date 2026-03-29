@@ -32,8 +32,7 @@ impl Iterator for RegPermutation {
             self.registers = None;
         }
 
-        'inc:
-        for i in (0..self.current.len()).rev() {
+        'inc: for i in (0..self.current.len()).rev() {
             loop {
                 self.current[i] += 1;
                 if self.current[i] >= registers.get() {
@@ -43,7 +42,11 @@ impl Iterator for RegPermutation {
                     }
                     break;
                 }
-                let range = if i >= self.inputs { self.inputs..i } else { 0..i };
+                let range = if i >= self.inputs {
+                    self.inputs..i
+                } else {
+                    0..i
+                };
                 if self.current[range].iter().all(|&x| x != self.current[i]) {
                     break 'inc;
                 }

@@ -1,8 +1,11 @@
 [package]
-name = "calc-stencils"
+name = "calc-stencils-bin"
 version = "0.1.0"
 edition.workspace = true
 
+[build-dependencies]
+patchouly-build.workspace = true
+
 [dependencies]
 patchouly-core.workspace = true
-patchouly-macros.workspace = true
+

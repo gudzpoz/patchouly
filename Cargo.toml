@@ -5,19 +5,27 @@ edition = "2024"
 
 [workspace]
 members = [
+    "crates/patchouly-core",
+    "crates/patchouly-build",
     "crates/patchouly-macros",
 
     "examples/calc-stencils",
+    "examples/calc-stencils-bin",
 ]
 
 [workspace.package]
 edition = "2024"
 
 [workspace.dependencies]
-patchouly-macros = { version = "0.1.0", path = "crates/patchouly-macros" }
+patchouly-core = { path = "crates/patchouly-core" }
+patchouly-build = { path = "crates/patchouly-build" }
+patchouly-macros = { path = "crates/patchouly-macros" }
+
 example-calc-stencils = { path = "examples/calc" }
+example-calc-stencils-bin = { path = "examples/calc-bin" }
 
 ### Common
+bitfields = "1.0.3"
 itertools = "0.14.0"
 once_cell = "1.21.4"
 smallvec = "1.15.1"
