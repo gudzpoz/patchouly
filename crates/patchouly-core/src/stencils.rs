@@ -1,5 +1,3 @@
-use smallvec::SmallVec;
-
 use crate::relocation::Relocation;
 
 /// Defines structs for stencils
@@ -173,33 +171,6 @@ impl<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>
 
     pub fn code<'a>(&self, store: &'a [u8]) -> &'a [u8] {
         &store[self.code_index as usize..self.code_index as usize + self.code_len as usize]
-    }
-
-    pub fn copy(&self, store: &[u8], dest: &mut Vec<u8>) {
-        dest.extend_from_slice(self.code(store));
-    }
-
-    pub fn patch<const MAX_REGS: usize>(
-        &self, store: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
-        inputs: &[Variable; IN],
-        outputs: &[Variable; OUT],
-        holes: &[usize; HOLES],
-        jumps: &[usize; JUMPS],
-        dest: &mut [u8],
-    ) {
-        let mut stack_vars = SmallVec::<[usize; 8]>::new();
-        for var in inputs.iter().chain(outputs.iter()) {
-            if let Variable::Stack(i) = var {
-                stack_vars.push(*i as usize);
-            }
-        }
-
-        for relocation in &store.relocation_data[self.relocation_index as usize..] {
-            if relocation.is_invalid() {
-                return;
-            }
-            relocation.apply(dest, &stack_vars, holes.as_slice(), jumps.as_slice());
-        }
     }
 }
 

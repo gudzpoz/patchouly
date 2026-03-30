@@ -102,28 +102,4 @@ impl Relocation {
             _ => return None,
         })
     }
-
-    pub fn apply(&self, dest: &mut [u8], stack_vars: &[usize], holes: &[usize], jumps: &[usize]) {
-        let value = match self.patch_info().unwrap() {
-            PatchInfo::Hole(i) => holes[i as usize],
-            PatchInfo::Stack(i) => stack_vars[i as usize],
-            PatchInfo::Target(i) => jumps[i as usize],
-        };
-
-        let value = value.wrapping_add_signed(self.addend() as isize);
-
-        match self.encoding() {
-            RelocationEncoding::Generic => {
-                let size = (self.size() / 8) as usize;
-                dest[self.offset() as usize..][..size]
-                    .copy_from_slice(&value.to_le_bytes()[..size]);
-            }
-            RelocationEncoding::X86Signed => {
-                let size = (self.size() / 8) as usize;
-                dest[self.offset() as usize..][..size]
-                    .copy_from_slice(&value.to_le_bytes()[..size]);
-            }
-            _ => unreachable!(),
-        }
-    }
 }

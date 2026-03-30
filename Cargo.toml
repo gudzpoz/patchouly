@@ -53,3 +53,4 @@ pretty_assertions = "1.4.1"
 patchouly-core.workspace = true
 
 memmap2.workspace = true
+smallvec.workspace = true

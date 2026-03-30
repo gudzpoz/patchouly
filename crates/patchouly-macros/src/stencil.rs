@@ -199,7 +199,11 @@ impl StencilFamily {
     pub fn expand(mut self) -> TokenStream {
         let perm = RegPermutation::new(
             self.sig.inputs,
-            if self.options.returns { 0 } else { self.sig.outputs },
+            if self.options.returns {
+                0
+            } else {
+                self.sig.outputs
+            },
             self.options.registers(),
         );
         let orig = self.orig.clone();
@@ -224,7 +228,11 @@ impl StencilFamily {
         );
         let mut bytes = [0u8; 10];
         bytes[0..2].copy_from_slice(&self.sig.inputs.to_le_bytes());
-        let outputs = if self.options.returns { 0 } else { self.sig.outputs };
+        let outputs = if self.options.returns {
+            0
+        } else {
+            self.sig.outputs
+        };
         bytes[2..4].copy_from_slice(&outputs.to_le_bytes());
         bytes[4..6].copy_from_slice(&self.options.registers().get().to_le_bytes());
         bytes[6..8].copy_from_slice(&(self.sig.hole_names.len() as u16).to_le_bytes());
@@ -271,9 +279,8 @@ impl StencilFamily {
         let arg_list = &sig.arg_list();
         let [hole_defs, hole_inits, hole_outputs] = self.generate_holes(&sig);
         let (rets, call) = self.generate_call(&sig);
-        let [return_type, next_def, next_call] = self.generate_next(
-            arg_list, rets.as_ref().map(|v| &v[..]).unwrap_or(&[]), &sig,
-        );
+        let [return_type, next_def, next_call] =
+            self.generate_next(arg_list, rets.as_ref().map(|v| &v[..]).unwrap_or(&[]), &sig);
 
         let abi = self.options.abi();
         quote! {
@@ -312,15 +319,18 @@ impl StencilFamily {
         }
         let mut ret_names = None;
         let rets: Vec<_> = if self.options.returns {
-            let syms: Vec<_> = (0..self.sig.outputs).map(
-                |i| syn::Ident::new(&format!("ret{}", i), Span::call_site()),
-            ).collect();
+            let syms: Vec<_> = (0..self.sig.outputs)
+                .map(|i| syn::Ident::new(&format!("ret{}", i), Span::call_site()))
+                .collect();
             ret_names.get_or_insert(syms).iter().collect()
         } else {
-            sig.io_locations[sig.inputs_num..].iter().map(|i| match i {
-                WrapperCallArg::Reg(i) => &sig.reg_names[*i as usize],
-                WrapperCallArg::Stack(i) => &sig.stack_arg_names[*i as usize],
-            }).collect()
+            sig.io_locations[sig.inputs_num..]
+                .iter()
+                .map(|i| match i {
+                    WrapperCallArg::Reg(i) => &sig.reg_names[*i as usize],
+                    WrapperCallArg::Stack(i) => &sig.stack_arg_names[*i as usize],
+                })
+                .collect()
         };
         let rets = if self.sig.target_enum.is_some() {
             quote! { target }
@@ -388,7 +398,12 @@ impl StencilFamily {
         [hole_defs, hole_inits, hole_outputs]
     }
 
-    fn generate_next(&self, arg_list: &TokenStream, rets: &[syn::Ident], sig: &StencilSignature) -> [TokenStream; 3] {
+    fn generate_next(
+        &self,
+        arg_list: &TokenStream,
+        rets: &[syn::Ident],
+        sig: &StencilSignature,
+    ) -> [TokenStream; 3] {
         let next_call_args = &sig.reg_names;
         if let Some(target_enum) = &self.sig.target_enum {
             let mut target_defs = Vec::with_capacity(self.sig.target_names.len());

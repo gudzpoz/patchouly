@@ -208,6 +208,7 @@ version = "0.1.0"
 dependencies = [
  "memmap2",
  "patchouly-core",
+ "smallvec",
 ]
 
 [[package]]
@@ -226,7 +227,6 @@ name = "patchouly-core"
 version = "0.1.0"
 dependencies = [
  "bitfields",
- "smallvec",
 ]
 
 [[package]]

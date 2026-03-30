@@ -8,4 +8,3 @@ path = "src/lib.rs"
 
 [dependencies]
 bitfields.workspace = true
-smallvec.workspace = true

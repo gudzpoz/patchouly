@@ -1,11 +1,31 @@
-use std::{error::Error, fmt::{Debug, Write}, ops::Deref};
+mod patch;
+
+use std::{
+    error::Error,
+    fmt::{Debug, Write},
+    ops::Deref,
+};
 
 use memmap2::{Mmap, MmapMut};
 use patchouly_core::{StencilFamily, StencilLibrary, stencils::Variable};
 
+pub use crate::patch::JumpTarget;
+use crate::patch::{CopyNPatch, DelayedRelocation, PatchArgs};
+
+#[derive(Default)]
+pub struct ProgramBlocks {
+    // TODO
+}
+impl ProgramBlocks {
+    fn resolve_target(&self, _block: u16) -> usize {
+        todo!()
+    }
+}
+
 pub struct PatchBlock {
     library: &'static StencilLibrary,
     code: Vec<u8>,
+    relocations: Vec<DelayedRelocation>,
 }
 
 impl PatchBlock {
@@ -13,6 +33,7 @@ impl PatchBlock {
         Self {
             library,
             code: vec![],
+            relocations: vec![],
         }
     }
 
@@ -23,31 +44,53 @@ impl PatchBlock {
         const HOLES: usize,
         const INPUTS: usize,
     >(
-        &mut self, stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, INPUTS>,
+        &mut self,
+        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, INPUTS>,
         inputs: &[Variable; IN],
         outputs: &[Variable; OUT],
         holes: &[usize; HOLES],
-        jumps: &[usize; INPUTS],
+        jumps: &[JumpTarget; INPUTS],
     ) -> Option<()> {
-        if inputs.iter().any(|v| v.into_bits() >= self.library.registers)
-            || outputs.iter().any(|v| v.into_bits() >= self.library.registers)
+        if inputs
+            .iter()
+            .any(|v| v.into_bits() >= self.library.registers)
+            || outputs
+                .iter()
+                .any(|v| v.into_bits() >= self.library.registers)
         {
             return None;
         }
         let s = stencil.select(inputs, outputs);
 
         if self.code.ends_with(self.library.empty) {
-            self.code.truncate(self.code.len() - self.library.empty.len());
+            self.code
+                .truncate(self.code.len() - self.library.empty.len());
+            self.relocations.pop();
         }
         let from = self.code.len();
         s.copy(self.library.code, &mut self.code);
-        s.patch(stencil, inputs, outputs, holes, jumps, &mut self.code[from..]);
+        s.patch(
+            stencil,
+            PatchArgs(inputs, outputs, holes, jumps),
+            &mut self.code,
+            from,
+            &mut self.relocations,
+        );
 
         Some(())
     }
 
-    pub fn finalize(self) -> Result<Program, Box<dyn Error>> {
-        let code = self.code;
+    pub fn finalize(self, program: &ProgramBlocks) -> Result<Program, Box<dyn Error>> {
+        let mut code = self.code;
+
+        for relocation in self.relocations {
+            relocation.apply(
+                &mut code,
+                program
+                    .resolve_target(relocation.target())
+                    .wrapping_sub(relocation.offset()) as isize,
+            );
+        }
 
         let mut map = MmapMut::map_anon(code.len())?;
         map.copy_from_slice(&code);
@@ -82,8 +125,6 @@ impl Debug for Program {
             }
         }
 
-        f.debug_struct("Program")
-            .field("mmap", &s)
-            .finish()
+        f.debug_struct("Program").field("mmap", &s).finish()
     }
 }
