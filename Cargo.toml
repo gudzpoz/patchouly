@@ -11,6 +11,8 @@ members = [
 
     "examples/calc",
     "examples/calc-stencils",
+
+    "book/tests",
 ]
 
 [workspace.package]
@@ -24,6 +26,7 @@ patchouly-macros = { path = "crates/patchouly-macros" }
 
 example-calc = { path = "examples/calc" }
 example-calc-stencils = { path = "examples/calc" }
+book-tests = { path = "book/tests" }
 
 ### Common
 bitfields = "1.0.3"

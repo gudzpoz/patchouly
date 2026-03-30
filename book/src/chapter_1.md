@@ -125,7 +125,6 @@ the OS might handle all the executable loading for us, we will need to do a bit
 more to run the code directly in our program:
 
 ```rust
-# extern crate memmap2;
 # const PUSH_ANSWER: u8 = 1;
 # const POP_RETURN : u8 = 2;
 # #[cfg(target_arch="x86_64")]
@@ -183,7 +182,6 @@ To do that, we can do *complicated pattern matching* and detect the instruction
 pair `PUSH_ANSWER + POP_RETURN`, emitting specialized code for them:
 
 ```rust
-# extern crate memmap2;
 # const PUSH_ANSWER: u8 = 1;
 # const POP_RETURN : u8 = 2;
 # #[cfg(target_arch="x86_64")]

@@ -20,7 +20,19 @@ compiled, will serve as basic building blocks for the JIT runtime to **copy**
 from:
 
 ```rust
-{{#include ./ch1/answer_lang_tail.rs:content}}
+unsafe extern "C" {
+    fn copy_and_patch_next(answer: usize);
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn push_answer() {
+    unsafe { copy_and_patch_next(42) };
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn pop_return(answer: usize) -> usize {
+    answer
+}
 ```
 
 Let's save the code above in `answer_lang_tail.rs` and compile it with `rustc -O
@@ -52,7 +64,6 @@ By simply **copying** and concatenating the function bodies of `push_answer` and
 Let's try running the code:
 
 ```rust
-# extern crate memmap2;
 # type CFunction = extern "C" fn(...) -> usize;
 # fn get_fn(code: &[u8]) -> (CFunction, memmap2::Mmap) {
 #     let mut page = memmap2::MmapMut::map_anon(code.len()).expect("mmap failed");
@@ -111,7 +122,6 @@ And that gives us a slightly different object file output upon compilation:
 ```
 
 ```rust
-# extern crate memmap2;
 # type CFunction = extern "C" fn(...) -> usize;
 # fn get_fn(code: &[u8]) -> (CFunction, memmap2::Mmap) {
 #     let mut page = memmap2::MmapMut::map_anon(code.len()).expect("mmap failed");
@@ -137,7 +147,6 @@ ANSWER`, and it means that the patch is to be done at offset `1`, sized 32-bit.
 Let's patch `42` in and look at the result:
 
 ```rust
-# extern crate memmap2;
 # type CFunction = extern "C" fn(...) -> usize;
 # fn get_fn(code: &[u8]) -> (CFunction, memmap2::Mmap) {
 #     let mut page = memmap2::MmapMut::map_anon(code.len()).expect("mmap failed");
@@ -190,8 +199,8 @@ function that, instead of returning like "normal functions" do, it jumps to
 another function. This is a classic example of tail call optimization (TCO),
 that is:
 
-    Calling a function and returning its return value is equivalent to jumping
-    to that function and let it return to our caller instead.
+> Calling a function and returning its return value is equivalent to jumping
+> to that function and let it return to our caller instead.
 
 Tail call optimization allows us to chain function calls without growing the
 stack, and many compilers will try to do this for us with appropriate flags set.
@@ -245,6 +254,7 @@ the form of `S + A`, where `S` is the value `answer` will get, and `A` is
 typically `0` for `R_X86_64_32`. So we fill in `42 + 0 = 42u32` here:
 
 ```rust
+# let mut code = [0u8; 5];
 code[1..5].copy_from_slice(&42u32.to_ne_bytes());
 ```
 
@@ -302,8 +312,8 @@ some dedicated, magical compiler flags:
 - `-C code-model=small/large`: Well, this is new. We did not use this flag in
   the previous examples. It turns out that, because most applications uses less
   than 1 GiB of memory, the compiler and the linker might just assume all symbol
-  pointers are within 32-bit or less. This reduces code size, but is ideal for
-  us when we want to inject 64-bit integers.
+  pointers are within 32-bit or less. This reduces code size, but isn't ideal
+  for us when we want to inject 64-bit integers.
 
   We can already see this from when we were trying to inject `ANSWER`:
 

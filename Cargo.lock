@@ -36,6 +36,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "book-tests"
+version = "0.1.0"
+dependencies = [
+ "memmap2",
+ "patchouly-core",
+ "patchouly-macros",
+]
+
+[[package]]
 name = "calc"
 version = "0.1.0"
 dependencies = [
