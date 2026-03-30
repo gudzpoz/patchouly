@@ -270,8 +270,10 @@ impl StencilFamily {
         let sig = StencilSignature::new(self.sig.inputs as usize, input_locations);
         let arg_list = &sig.arg_list();
         let [hole_defs, hole_inits, hole_outputs] = self.generate_holes(&sig);
-        let [call_rets, call] = self.generate_call(&sig);
-        let [return_type, next_def, next_call] = self.generate_next(arg_list, &call_rets, &sig);
+        let (rets, call) = self.generate_call(&sig);
+        let [return_type, next_def, next_call] = self.generate_next(
+            arg_list, rets.as_ref().map(|v| &v[..]).unwrap_or(&[]), &sig,
+        );
 
         let abi = self.options.abi();
         quote! {
@@ -285,14 +287,14 @@ impl StencilFamily {
                 }
 
                 #(#hole_inits)*
-                let #call_rets = #call;
+                #call
                 #(#hole_outputs)*
                 #next_call
             }
         }
     }
 
-    fn generate_call(&self, sig: &StencilSignature) -> [TokenStream; 2] {
+    fn generate_call(&self, sig: &StencilSignature) -> (Option<Vec<syn::Ident>>, TokenStream) {
         let name = &self.orig.sig.ident;
         let stack = OnceCell::new();
         let call_args = &self.sig.call_args;
@@ -308,12 +310,12 @@ impl StencilFamily {
                 CallArg::Target(i) => &self.sig.target_names[*i as usize],
             });
         }
-        let mut anchor = None;
+        let mut ret_names = None;
         let rets: Vec<_> = if self.options.returns {
             let syms: Vec<_> = (0..self.sig.outputs).map(
                 |i| syn::Ident::new(&format!("ret{}", i), Span::call_site()),
             ).collect();
-            anchor.get_or_insert(syms).iter().collect()
+            ret_names.get_or_insert(syms).iter().collect()
         } else {
             sig.io_locations[sig.inputs_num..].iter().map(|i| match i {
                 WrapperCallArg::Reg(i) => &sig.reg_names[*i as usize],
@@ -327,7 +329,7 @@ impl StencilFamily {
         } else {
             quote! { (#(#rets),*) }
         };
-        [rets, quote! { #name(#(#args.into()),*) }]
+        (ret_names, quote! { let #rets = #name(#(#args.into()),*); })
     }
 
     fn generate_holes(&self, sig: &StencilSignature) -> [Vec<TokenStream>; 3] {
@@ -386,7 +388,7 @@ impl StencilFamily {
         [hole_defs, hole_inits, hole_outputs]
     }
 
-    fn generate_next(&self, arg_list: &TokenStream, rets: &TokenStream, sig: &StencilSignature) -> [TokenStream; 3] {
+    fn generate_next(&self, arg_list: &TokenStream, rets: &[syn::Ident], sig: &StencilSignature) -> [TokenStream; 3] {
         let next_call_args = &sig.reg_names;
         if let Some(target_enum) = &self.sig.target_enum {
             let mut target_defs = Vec::with_capacity(self.sig.target_names.len());
@@ -410,11 +412,20 @@ impl StencilFamily {
                 },
             ]
         } else if self.options.returns {
-            let outputs = std::iter::repeat_n(quote! { usize }, self.sig.outputs as usize);
             [
-                quote! { (#(#outputs),*) },
+                if self.sig.outputs == 1 {
+                    quote! { usize }
+                } else {
+                    let outputs = std::iter::repeat_n(quote! { usize }, self.sig.outputs as usize);
+                    quote! { (#(#outputs),*) }
+                },
                 quote! {},
-                quote! { #rets },
+                if rets.len() == 1 {
+                    let ret = &rets[0];
+                    quote! { #ret.into() }
+                } else {
+                    quote! { (#(#rets.into()),*) }
+                },
             ]
         } else {
             [
@@ -781,52 +792,28 @@ mod test {
             },
             quote! {
                 #[unsafe(no_mangle)]
-                pub static __patchouly__returns__meta: [u8; 10] = *b"\x01\0\x01\0\x02\0\0\0\0\0";
+                pub static __patchouly__returns__meta: [u8; 10] = *b"\x01\0\0\0\x02\0\0\0\0\0";
                 #[inline(always)]
                 pub fn returns(a: usize) -> usize { a }
                 #[unsafe(no_mangle)]
-                pub unsafe extern "rust-preserve-none" fn __patchouly__returns__0__0(stack: &mut Stack) -> () {
-                    mod imp { unsafe extern "rust-preserve-none" {
-                        pub static returns__stack0: [u8; 0x10000];
-                        pub static returns__stack1: [u8; 0x10000];
-                    } }
-                    let stack0 = stack.get(imp::returns__stack0.as_ptr() as usize);
-                    let stack1 = returns(stack0.into());
-                    stack.set(imp::returns__stack1.as_ptr() as usize, stack1.into());
-                    ()
-                }
-                #[unsafe(no_mangle)]
-                pub unsafe extern "rust-preserve-none" fn __patchouly__returns__0__1(
+                pub unsafe extern "rust-preserve-none" fn __patchouly__returns__0__(
                     stack: &mut Stack,
-                    out0: usize,
                 ) -> usize {
                     mod imp { unsafe extern "rust-preserve-none" {
                         pub static returns__stack0: [u8; 0x10000];
                     } }
                     let stack0 = stack.get(imp::returns__stack0.as_ptr() as usize);
-                    let out0 = returns(stack0.into());
-                    (out0.into())
+                    let ret0 = returns(stack0.into());
+                    ret0.into()
                 }
                 #[unsafe(no_mangle)]
-                pub unsafe extern "rust-preserve-none" fn __patchouly__returns__1__0(
+                pub unsafe extern "rust-preserve-none" fn __patchouly__returns__1__(
                     stack: &mut Stack,
                     in0: usize,
                 ) -> usize {
-                    mod imp { unsafe extern "rust-preserve-none" {
-                        pub static returns__stack0: [u8; 0x10000];
-                    } }
-                    let stack0 = returns(in0.into());
-                    stack.set(imp::returns__stack0.as_ptr() as usize, stack0.into());
-                    (in0.into())
-                }
-                #[unsafe(no_mangle)]
-                pub unsafe extern "rust-preserve-none" fn __patchouly__returns__1__1(
-                    stack: &mut Stack,
-                    in0_out0: usize,
-                ) -> usize {
                     mod imp { unsafe extern "rust-preserve-none" {} }
-                    let in0_out0 = returns(in0_out0.into());
-                    (in0_out0.into())
+                    let ret0 = returns(in0.into());
+                    ret0.into()
                 }
             },
         );
