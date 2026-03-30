@@ -6,7 +6,7 @@ fn main() {}
 
 #[cfg(test)]
 mod tests {
-    use patchouly::{JumpTarget, PatchBlock};
+    use patchouly::PatchBlock;
     use patchouly_core::{
         Stencil,
         stencils::{Variable, index_to_io_lossy, stencils_len},
@@ -118,16 +118,15 @@ mod tests {
     fn test_basic_add42_jit() {
         let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
         block
-            .emit(
+            .add(
                 &stencils::CALC_ADD_CONST,
                 &[Variable::Register(0)],
                 &[Variable::Register(0)],
                 &[42],
-                &[JumpTarget::Next],
             )
             .unwrap();
         block
-            .emit(&stencils::CALC_RET, &[Variable::Register(0)], &[], &[], &[])
+            .ret(&stencils::CALC_RET, &[Variable::Register(0)], &[])
             .unwrap();
         let program = block.finalize(&Default::default()).unwrap();
         eprintln!("{:?}", program);
@@ -150,25 +149,23 @@ mod tests {
     fn test_basic_add_two_jit() {
         let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
         block
-            .emit(
+            .add(
                 &stencils::CALC_ADD,
                 &[Variable::Register(0), Variable::Register(1)],
                 &[Variable::Register(8)],
                 &[],
-                &[JumpTarget::Next],
             )
             .unwrap();
         block
-            .emit(
+            .add(
                 &stencils::CALC_ADD_CONST,
                 &[Variable::Register(8)],
                 &[Variable::Register(4)],
                 &[42],
-                &[JumpTarget::Next],
             )
             .unwrap();
         block
-            .emit(&stencils::CALC_RET, &[Variable::Register(4)], &[], &[], &[])
+            .ret(&stencils::CALC_RET, &[Variable::Register(4)], &[])
             .unwrap();
         let program = block.finalize(&Default::default()).unwrap();
         eprintln!("{:?}", program);

@@ -26,6 +26,7 @@ pub struct PatchBlock<const MAX_REGS: usize> {
     library: &'static StencilLibrary<MAX_REGS>,
     code: Vec<u8>,
     relocations: Vec<DelayedRelocation>,
+    ended: bool,
 }
 
 impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
@@ -34,28 +35,56 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
             library,
             code: vec![],
             relocations: vec![],
+            ended: false,
         }
     }
 
-    pub fn emit<
-        const IN: usize,
-        const OUT: usize,
-        const HOLES: usize,
-        const INPUTS: usize,
-    >(
+    pub fn add<const IN: usize, const OUT: usize, const HOLES: usize>(
         &mut self,
-        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, INPUTS>,
+        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, 1>,
         inputs: &[Variable; IN],
         outputs: &[Variable; OUT],
         holes: &[usize; HOLES],
-        jumps: &[JumpTarget; INPUTS],
     ) -> Option<()> {
-        if inputs
-            .iter()
-            .any(|v| v.into_bits() as usize >= MAX_REGS)
-            || outputs
-                .iter()
-                .any(|v| v.into_bits() as usize >= MAX_REGS)
+        if self.ended {
+            // TODO: error reporting
+            return None;
+        }
+        self.emit(stencil, inputs, outputs, holes, &[JumpTarget::Next])
+    }
+
+    pub fn ret<const IN: usize, const HOLES: usize>(
+        &mut self,
+        stencil: &StencilFamily<IN, 0, MAX_REGS, HOLES, 0>,
+        inputs: &[Variable; IN],
+        holes: &[usize; HOLES],
+    ) -> Option<()> {
+        self.ended = true;
+        self.emit(stencil, inputs, &[], holes, &[])
+    }
+
+    pub fn branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
+        &mut self,
+        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
+        inputs: &[Variable; IN],
+        outputs: &[Variable; OUT],
+        holes: &[usize; HOLES],
+        jumps: &[JumpTarget; JUMPS],
+    ) -> Option<()> {
+        self.ended = true;
+        self.emit(stencil, inputs, outputs, holes, jumps)
+    }
+
+    fn emit<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
+        &mut self,
+        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
+        inputs: &[Variable; IN],
+        outputs: &[Variable; OUT],
+        holes: &[usize; HOLES],
+        jumps: &[JumpTarget; JUMPS],
+    ) -> Option<()> {
+        if inputs.iter().any(|v| v.into_bits() as usize >= MAX_REGS)
+            || outputs.iter().any(|v| v.into_bits() as usize >= MAX_REGS)
         {
             return None;
         }
@@ -80,6 +109,11 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
     }
 
     pub fn finalize(self, program: &ProgramBlocks) -> Result<Program, Box<dyn Error>> {
+        if !self.ended {
+            // TODO: error reporting
+            return Err("not ended".into());
+        }
+
         let mut code = self.code;
 
         for relocation in self.relocations {
