@@ -176,9 +176,9 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
             }
 
             let sym_name = if let Ok(name) = symbol.name()
-                && name.starts_with(STENCIL_FUNC_PREFIX)
+                && let Some(after) = name.strip_prefix(STENCIL_FUNC_PREFIX)
             {
-                &name[STENCIL_FUNC_PREFIX.len()..]
+                after
             } else {
                 continue;
             };
@@ -298,10 +298,29 @@ impl Metadata {
 }
 
 fn parse_name(sym_name: &str) -> Option<(&str, StencilArgs)> {
-    if sym_name == "__empty____" {
-        return Some(("__empty", StencilArgs::default()));
+    if sym_name.is_empty() {
+        return None;
     }
-    let mut split = sym_name.split("__");
+
+    struct SplitIter<'a>(usize, &'a str);
+    impl<'a> Iterator for SplitIter<'a> {
+        type Item = &'a str;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.0 > self.1.len() {
+                return None;
+            }
+            let prev = self.0;
+            let start = self.0.max(1);
+            let Some(end) = self.1[start..].find("__") else {
+                self.0 = self.1.len() + 1;
+                return Some(&self.1[prev..]);
+            };
+            self.0 = start + end + 2;
+            Some(&self.1[prev..start + end])
+        }
+    }
+
+    let mut split = SplitIter(0, sym_name);
     let name = split.next()?;
     let inputs = split.next()?;
     let outputs = split.next()?;
@@ -402,6 +421,8 @@ mod tests {
         let assertions = [
             ("add_const__1__0", "add_const", 10),
             ("add_const__9__0", "add_const", 90),
+            ("__empty____", "__empty", 0),
+            ("__move__1__1", "__move", 11),
         ];
         for (input, name, index) in assertions {
             let (n, args) = parse_name(input).unwrap();

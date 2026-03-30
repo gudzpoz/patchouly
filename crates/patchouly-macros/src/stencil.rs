@@ -52,7 +52,7 @@ impl syn::parse::Parse for StencilFamily {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let mut f: syn::ItemFn = input.parse()?;
         let name = f.sig.ident.to_string();
-        if name.contains("__") && name != "__empty" {
+        if name.contains("__") && name != "__empty" && name != "__move" {
             return Err(syn::Error::new_spanned(
                 f.sig.ident,
                 "please use a name without __",

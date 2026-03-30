@@ -49,6 +49,7 @@ mod tests {
     #[test]
     fn test_has_code() {
         let families = [
+            get_stencils!(stencils::CALC___MOVE),
             get_stencils!(stencils::CALC_ADD),
             get_stencils!(stencils::CALC_ADD1),
             get_stencils!(stencils::CALC_ADD_CONST),

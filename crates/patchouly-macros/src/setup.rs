@@ -16,8 +16,15 @@ pub fn setup(name: LitStr) -> TokenStream {
             assert_impl_stack::<Stack>();
         };
 
+        /// An empty stencil used produce a no-op relative jump instruction
         #[::patchouly_macros::stencil]
         pub fn __empty() {
+        }
+
+        /// Stencils used to move values between registers/the stack
+        #[::patchouly_macros::stencil]
+        pub fn __move(v: usize) -> usize {
+            v
         }
     }
 }

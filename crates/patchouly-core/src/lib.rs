@@ -17,13 +17,13 @@ pub trait StencilStack {
 }
 
 /// A library of stencils
-pub struct StencilLibrary {
+pub struct StencilLibrary<const MAX_REGS: usize> {
     /// All the stencil binary code, referred to by stencils
     pub code: &'static [u8],
     /// The code for an empty stencil, used to prune consecutive jumps
     pub empty: &'static [u8],
-    /// Number of available registers
-    pub registers: u16,
+    /// Stencils to move values between registers/the stack
+    pub moves: &'static StencilFamily<1, 1, MAX_REGS, 0, 1>,
 }
 
 pub use stencils::Stencil;

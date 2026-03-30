@@ -22,14 +22,14 @@ impl ProgramBlocks {
     }
 }
 
-pub struct PatchBlock {
-    library: &'static StencilLibrary,
+pub struct PatchBlock<const MAX_REGS: usize> {
+    library: &'static StencilLibrary<MAX_REGS>,
     code: Vec<u8>,
     relocations: Vec<DelayedRelocation>,
 }
 
-impl PatchBlock {
-    pub fn new(library: &'static StencilLibrary) -> Self {
+impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
+    pub fn new(library: &'static StencilLibrary<MAX_REGS>) -> Self {
         Self {
             library,
             code: vec![],
@@ -40,7 +40,6 @@ impl PatchBlock {
     pub fn emit<
         const IN: usize,
         const OUT: usize,
-        const MAX_REGS: usize,
         const HOLES: usize,
         const INPUTS: usize,
     >(
@@ -53,10 +52,10 @@ impl PatchBlock {
     ) -> Option<()> {
         if inputs
             .iter()
-            .any(|v| v.into_bits() >= self.library.registers)
+            .any(|v| v.into_bits() as usize >= MAX_REGS)
             || outputs
                 .iter()
-                .any(|v| v.into_bits() >= self.library.registers)
+                .any(|v| v.into_bits() as usize >= MAX_REGS)
         {
             return None;
         }
