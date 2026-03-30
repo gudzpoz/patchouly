@@ -36,19 +36,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "calc"
+version = "0.1.0"
+dependencies = [
+ "patchouly",
+ "patchouly-build",
+ "patchouly-core",
+]
+
+[[package]]
 name = "calc-stencils"
 version = "0.1.0"
 dependencies = [
  "patchouly-core",
  "patchouly-macros",
-]
-
-[[package]]
-name = "calc-stencils-bin"
-version = "0.1.0"
-dependencies = [
- "patchouly-build",
- "patchouly-core",
 ]
 
 [[package]]
@@ -195,6 +196,10 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "patchouly"
 version = "0.1.0"
+dependencies = [
+ "memmap2",
+ "patchouly-core",
+]
 
 [[package]]
 name = "patchouly-build"
@@ -212,6 +217,7 @@ name = "patchouly-core"
 version = "0.1.0"
 dependencies = [
  "bitfields",
+ "smallvec",
 ]
 
 [[package]]

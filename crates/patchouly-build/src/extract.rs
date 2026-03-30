@@ -141,6 +141,7 @@ impl StencilFamilyBuilder {
 pub struct Extraction {
     pub lib_name: String,
     pub all_code: Vec<u8>,
+    pub max_regs: usize,
     pub families: BTreeMap<String, StencilFamilyBuild>,
 }
 pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
@@ -149,6 +150,7 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
     let ar = ArchiveFile::parse(ar_data)?;
 
     let mut lib_name = None;
+    let mut max_regs = None;
     let mut all_code = Vec::with_capacity(ar_data.len() / 2);
     let mut stencils = HashMap::new();
 
@@ -228,6 +230,17 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
                     let Some(metadata) = metadata else {
                         return Err(format!("no meta symbol for {}", name).into());
                     };
+                    if let Some(max_regs) = max_regs {
+                        if max_regs != metadata.max_regs {
+                            return Err(format!(
+                                "all stencils must have the same max_regs: {}",
+                                name,
+                            )
+                            .into());
+                        }
+                    } else {
+                        max_regs = Some(metadata.max_regs);
+                    }
                     let builder = StencilFamilyBuilder::new(metadata);
                     vacant_entry.insert(builder)
                 }
@@ -239,6 +252,7 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
     Ok(Extraction {
         lib_name: lib_name.unwrap(),
         all_code,
+        max_regs: max_regs.unwrap_or(0) as usize,
         families: stencils
             .into_iter()
             .map(|(name, builder)| (name.to_string(), builder.finalize()))

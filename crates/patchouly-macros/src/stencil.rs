@@ -8,7 +8,7 @@
 //! Note that the generated data will be extracted by `patchouly-build`,
 //! so be sure to keep it in sync when making changes.
 
-use std::{num::NonZero, ops::Index};
+use std::{num::NonZero, ops::Index, vec};
 
 use darling::{FromMeta, ast::NestedMeta};
 use itertools::Itertools;
@@ -197,7 +197,11 @@ impl StencilFamily {
     }
 
     pub fn expand(mut self) -> TokenStream {
-        let perm = RegPermutation::new(self.sig.inputs, self.sig.outputs, self.options.registers());
+        let perm = RegPermutation::new(
+            self.sig.inputs,
+            if self.options.returns { 0 } else { self.sig.outputs },
+            self.options.registers(),
+        );
         let orig = self.orig.clone();
         let meta = self.generate_meta();
         let target_enum = self.generate_target_enum();
@@ -220,7 +224,8 @@ impl StencilFamily {
         );
         let mut bytes = [0u8; 10];
         bytes[0..2].copy_from_slice(&self.sig.inputs.to_le_bytes());
-        bytes[2..4].copy_from_slice(&self.sig.outputs.to_le_bytes());
+        let outputs = if self.options.returns { 0 } else { self.sig.outputs };
+        bytes[2..4].copy_from_slice(&outputs.to_le_bytes());
         bytes[4..6].copy_from_slice(&self.options.registers().get().to_le_bytes());
         bytes[6..8].copy_from_slice(&(self.sig.hole_names.len() as u16).to_le_bytes());
         let targets = if self.sig.target_enum.is_some() {
@@ -265,8 +270,8 @@ impl StencilFamily {
         let sig = StencilSignature::new(self.sig.inputs as usize, input_locations);
         let arg_list = &sig.arg_list();
         let [hole_defs, hole_inits, hole_outputs] = self.generate_holes(&sig);
-        let call = self.generate_call(&sig);
-        let [return_type, next_def, next_call] = self.generate_next(arg_list, &sig);
+        let [call_rets, call] = self.generate_call(&sig);
+        let [return_type, next_def, next_call] = self.generate_next(arg_list, &call_rets, &sig);
 
         let abi = self.options.abi();
         quote! {
@@ -280,14 +285,14 @@ impl StencilFamily {
                 }
 
                 #(#hole_inits)*
-                #call
+                let #call_rets = #call;
                 #(#hole_outputs)*
                 #next_call
             }
         }
     }
 
-    fn generate_call(&self, sig: &StencilSignature) -> TokenStream {
+    fn generate_call(&self, sig: &StencilSignature) -> [TokenStream; 2] {
         let name = &self.orig.sig.ident;
         let stack = OnceCell::new();
         let call_args = &self.sig.call_args;
@@ -303,10 +308,18 @@ impl StencilFamily {
                 CallArg::Target(i) => &self.sig.target_names[*i as usize],
             });
         }
-        let rets = sig.io_locations[sig.inputs_num..].iter().map(|i| match i {
-            WrapperCallArg::Reg(i) => &sig.reg_names[*i as usize],
-            WrapperCallArg::Stack(i) => &sig.stack_arg_names[*i as usize],
-        });
+        let mut anchor = None;
+        let rets: Vec<_> = if self.options.returns {
+            let syms: Vec<_> = (0..self.sig.outputs).map(
+                |i| syn::Ident::new(&format!("ret{}", i), Span::call_site()),
+            ).collect();
+            anchor.get_or_insert(syms).iter().collect()
+        } else {
+            sig.io_locations[sig.inputs_num..].iter().map(|i| match i {
+                WrapperCallArg::Reg(i) => &sig.reg_names[*i as usize],
+                WrapperCallArg::Stack(i) => &sig.stack_arg_names[*i as usize],
+            }).collect()
+        };
         let rets = if self.sig.target_enum.is_some() {
             quote! { target }
         } else if rets.len() == 1 {
@@ -314,9 +327,7 @@ impl StencilFamily {
         } else {
             quote! { (#(#rets),*) }
         };
-        quote! {
-            let #rets = #name(#(#args.into()),*);
-        }
+        [rets, quote! { #name(#(#args.into()),*) }]
     }
 
     fn generate_holes(&self, sig: &StencilSignature) -> [Vec<TokenStream>; 3] {
@@ -375,7 +386,7 @@ impl StencilFamily {
         [hole_defs, hole_inits, hole_outputs]
     }
 
-    fn generate_next(&self, arg_list: &TokenStream, sig: &StencilSignature) -> [TokenStream; 3] {
+    fn generate_next(&self, arg_list: &TokenStream, rets: &TokenStream, sig: &StencilSignature) -> [TokenStream; 3] {
         let next_call_args = &sig.reg_names;
         if let Some(target_enum) = &self.sig.target_enum {
             let mut target_defs = Vec::with_capacity(self.sig.target_names.len());
@@ -399,12 +410,11 @@ impl StencilFamily {
                 },
             ]
         } else if self.options.returns {
+            let outputs = std::iter::repeat_n(quote! { usize }, self.sig.outputs as usize);
             [
-                sig.return_type(),
+                quote! { (#(#outputs),*) },
                 quote! {},
-                quote! {
-                    (#(#next_call_args.into()),*)
-                },
+                quote! { #rets },
             ]
         } else {
             [
@@ -484,15 +494,6 @@ impl StencilSignature {
     fn arg_list(&self) -> TokenStream {
         let args = self.reg_names.iter().map(|name| quote! { , #name: usize });
         quote! { #(#args)* }
-    }
-
-    fn return_type(&self) -> TokenStream {
-        if self.reg_names.len() == 1 {
-            quote! { usize }
-        } else {
-            let usizes = std::iter::repeat_n(quote! { usize }, self.reg_names.len());
-            quote! { (#(#usizes),*) }
-        }
     }
 }
 

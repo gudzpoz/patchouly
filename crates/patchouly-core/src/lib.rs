@@ -22,6 +22,8 @@ pub struct StencilLibrary {
     pub code: &'static [u8],
     /// The code for an empty stencil, used to prune consecutive jumps
     pub empty: &'static [u8],
+    /// Number of available registers
+    pub registers: u16,
 }
 
 pub use stencils::Stencil;

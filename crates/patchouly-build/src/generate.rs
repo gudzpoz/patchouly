@@ -45,6 +45,7 @@ use patchouly_core::relocation::Relocation;
 pub const {}_STENCIL_LIBRARY: StencilLibrary = StencilLibrary {{
     code: include_bytes!({}),
     empty: b"{}",
+    registers: {},
 }};"#,
             lib_upper,
             escape_string(&out_bin.display().to_string()),
@@ -58,7 +59,8 @@ pub const {}_STENCIL_LIBRARY: StencilLibrary = StencilLibrary {{
                     let stencil = empty.stencils[0];
                     Some(escape_binary(stencil.code(&extraction.all_code)))
                 })
-                .unwrap_or("".to_string())
+                .unwrap_or("".to_string()),
+            extraction.max_regs,
         ))?;
 
         // We directly use from_bits/into_bits here.

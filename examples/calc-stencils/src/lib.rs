@@ -74,6 +74,10 @@ fn add_const(a: usize, #[hole] c: usize) -> usize {
 fn add(a: usize, b: usize) -> usize {
     a + b
 }
+#[stencil(returns)]
+fn ret(a: usize) -> usize {
+    a
+}
 
 #[stencil]
 fn if_eq(a: usize, #[hole] c: usize, #[target] then: usize, #[target] or_else: usize) {

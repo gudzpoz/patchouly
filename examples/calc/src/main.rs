@@ -1,9 +1,12 @@
+#![feature(rust_preserve_none_cc)]
+
 include!(concat!(env!("OUT_DIR"), "/calc_stencils.rs"));
 
 fn main() {}
 
 #[cfg(test)]
 mod tests {
+    use patchouly::PatchBlock;
     use patchouly_core::{
         Stencil,
         stencils::{Variable, index_to_io_lossy, stencils_len},
@@ -108,5 +111,71 @@ mod tests {
             bitset |= 1 << bit;
         }
         false
+    }
+
+    #[test]
+    fn test_basic_add42_jit() {
+        let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
+        block.emit(
+            &stencils::CALC_ADD_CONST,
+            &[Variable::Register(0)], &[Variable::Register(0)],
+            &[42],
+            &[4], // TODO: relative jumps
+        ).unwrap();
+        block.emit(
+            &stencils::CALC_RET,
+            &[Variable::Register(0)], &[],
+            &[], &[],
+        ).unwrap();
+        let program = block.finalize().unwrap();
+        eprintln!("{:?}", program);
+        unsafe {
+            let add42 = std::mem::transmute::<
+                *const u8, extern "rust-preserve-none" fn(&mut (), usize) -> usize,
+            >(program.as_ptr());
+
+            let mut i = 1usize;
+            for _ in 0..10000 {
+                i = i.wrapping_mul(31);
+                let result = add42(&mut (), i);
+                assert_eq!(i.wrapping_add(42), result);
+            }
+        }
+    }
+
+    #[test]
+    fn test_basic_add_two_jit() {
+        let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
+        block.emit(
+            &stencils::CALC_ADD,
+            &[Variable::Register(0), Variable::Register(1)], &[Variable::Register(8)],
+            &[],
+            &[4], // TODO: relative jumps
+        ).unwrap();
+        block.emit(
+            &stencils::CALC_ADD_CONST,
+            &[Variable::Register(8)], &[Variable::Register(4)],
+            &[42],
+            &[4], // TODO: relative jumps
+        ).unwrap();
+        block.emit(
+            &stencils::CALC_RET,
+            &[Variable::Register(4)], &[],
+            &[], &[],
+        ).unwrap();
+        let program = block.finalize().unwrap();
+        eprintln!("{:?}", program);
+        unsafe {
+            let add2_42 = std::mem::transmute::<
+                *const u8, extern "rust-preserve-none" fn(&mut (), usize, usize) -> usize,
+            >(program.as_ptr());
+
+            let mut i = 1usize;
+            for _ in 0..10000 {
+                i = i.wrapping_mul(31);
+                let result = add2_42(&mut (), i, i);
+                assert_eq!(i.wrapping_mul(2).wrapping_add(42), result);
+            }
+        }
     }
 }
