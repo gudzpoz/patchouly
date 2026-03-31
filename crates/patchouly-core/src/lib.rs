@@ -1,3 +1,5 @@
+#![no_std]
+
 pub mod relocation;
 pub mod stencils;
 
@@ -28,5 +30,3 @@ pub struct StencilLibrary<const MAX_REGS: usize> {
 
 pub use stencils::Stencil;
 pub use stencils::StencilFamily;
-
-pub use stencils::StencilFamilyBuild;

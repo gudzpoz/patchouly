@@ -1,46 +1,17 @@
 use crate::relocation::Relocation;
 
-/// Defines structs for stencils
-///
-/// ## Internals
-///
-/// The `patchouly-build` crate will generate Rust code
-/// that instantiates these structs.
-/// To help keeping things in sync, we use this macro to
-/// define two kinds of structs: one for the users (in the generated code)
-/// and one for `patchouly-build` for serialization.
-/// (The reason that we can't use a single struct for both is the templates.)
-macro_rules! define_struct {
-    ($(#[$outer:meta])*
-    struct ($name:ident | $name_build:ident)<$(const $tmpl:ident: $tmpl_ty:ty),*> {
-        $($(#[$inner:meta])* pub $input:ident: $input_ty:ty | $input_tmpl_ty:ty),* $(,)?
-    }) => {
-        $(#[$outer])*
-        pub struct $name<$(const $tmpl: $tmpl_ty),*> {
-            $($(#[$inner])* pub $input: $input_ty),*,
-        }
-
-        /// Used by `patchouly-build`
-        #[allow(non_snake_case)]
-        #[doc(hidden)]
-        pub struct $name_build {
-            $(pub $tmpl: $tmpl_ty),*,
-            $(pub $input: $input_tmpl_ty),*,
-        }
-    };
+/// Describes the way to pass a variable in and out of a stencil
+pub struct StencilFamily<
+    const IN: usize,
+    const OUT: usize,
+    const MAX_REGS: usize,
+    const HOLES: usize,
+    const JUMPS: usize,
+> {
+    /// Pool of stencil relocation data, possibly shared by multiple stencils
+    pub relocation_data: &'static [Relocation],
+    pub stencils: &'static [Stencil<IN, OUT, HOLES, JUMPS>],
 }
-
-define_struct!(
-    /// Describes the way to pass a variable in and out of a stencil
-    struct (StencilFamily | StencilFamilyBuild)<
-        const IN: usize, const OUT: usize, const MAX_REGS: usize,
-        const HOLES: usize, const JUMPS: usize
-    > {
-        /// Pool of stencil relocation data, possibly shared by multiple stencils
-        pub relocation_data: &'static [Relocation] | Vec<Relocation>,
-        pub stencils: &'static [Stencil<IN, OUT, HOLES, JUMPS>] | Vec<Stencil<0, 0, 0, 0>>,
-    }
-);
 
 #[derive(Clone, Copy, Default, Debug)]
 #[repr(C)]
@@ -125,24 +96,27 @@ pub fn io_to_index(inputs: &[Variable], outputs: &[Variable], max_regs: usize) -
 
 #[doc(hidden)]
 pub fn index_to_io_lossy(
-    mut index: usize,
-    inputs: usize,
-    outputs: usize,
+    index: usize,
     max_regs: usize,
-) -> (Vec<Variable>, Vec<Variable>) {
-    let mut all = Vec::new();
-    for _ in 0..(inputs + outputs) {
-        let reg = index % max_regs;
-        index = (index - reg) / max_regs;
-        if reg == 0 {
-            all.push(Variable::Stack(0));
-        } else {
-            all.push(Variable::Register(reg as u16 - 1));
+    inputs: &mut [Variable],
+    outputs: &mut [Variable],
+) {
+    fn process_index(mut index: usize, max_regs: usize, slots: &mut [Variable]) -> usize {
+        for v in slots.iter_mut().rev() {
+            let reg = index % max_regs;
+            index = (index - reg) / max_regs;
+            *v = if reg == 0 {
+                Variable::Stack(0)
+            } else {
+                Variable::Register(reg as u16 - 1)
+            };
         }
+        index
     }
+
+    let index = process_index(index, max_regs, outputs);
+    let index = process_index(index, max_regs, inputs);
     assert_eq!(0, index);
-    all.reverse();
-    (all[..inputs].to_vec(), all[inputs..].to_vec())
 }
 
 #[doc(hidden)]
@@ -195,7 +169,9 @@ mod tests {
         let len = stencils_len(4, 4, 10);
         for _ in 0..10000 {
             i = i.wrapping_mul(31);
-            let (inputs, outputs) = index_to_io_lossy(i % len, 4, 4, 10);
+            let mut inputs = [Variable::Stack(0); 4];
+            let mut outputs = [Variable::Stack(0); 4];
+            index_to_io_lossy(i % len, 10, &mut inputs, &mut outputs);
             assert_eq!(io_to_index(&inputs, &outputs, 10), i % len);
         }
     }

@@ -62,7 +62,9 @@ mod tests {
             let mut empty_count = 0;
             for (i, s) in family.iter().enumerate() {
                 if s.into_bits() == 0 {
-                    let (inputs, outputs) = index_to_io_lossy(i, meta.0, meta.1, meta.2);
+                    let mut inputs = vec![Variable::Stack(0); meta.0];
+                    let mut outputs = vec![Variable::Stack(0); meta.1];
+                    index_to_io_lossy(i, meta.2, &mut inputs, &mut outputs);
                     assert!(
                         has_var_dups(&inputs) || has_var_dups(&outputs),
                         "duplicate variables: {} {} {:?} {:?}",
@@ -90,7 +92,8 @@ mod tests {
         assert_eq!(1000000, stencils_len(6, 0, 10));
         let mut empty_count = 0;
         for i in 0..1000000 {
-            let (inputs, _outputs) = index_to_io_lossy(i, 6, 0, 10);
+            let mut inputs = vec![Variable::Stack(0); 6];
+            index_to_io_lossy(i, 10, &mut inputs, &mut []);
             if has_var_dups(&inputs) {
                 empty_count += 1;
             }

@@ -13,7 +13,7 @@ use object::{
     RelocationTarget, Section, Symbol, SymbolKind, read::archive::ArchiveFile,
 };
 use patchouly_core::{
-    Stencil, StencilFamilyBuild,
+    Stencil,
     relocation::{
         PatchKind, Relocation as StencilRelocation, RelocationEncoding as StencilRelocationEncoding,
     },
@@ -50,6 +50,16 @@ impl FileContents {
     }
 }
 
+#[allow(non_snake_case)]
+pub struct StencilFamilyBuild {
+    pub IN: usize,
+    pub OUT: usize,
+    pub MAX_REGS: usize,
+    pub HOLES: usize,
+    pub JUMPS: usize,
+    pub relocation_data: Vec<StencilRelocation>,
+    pub stencils: Vec<Stencil<0, 0, 0, 0>>,
+}
 struct StencilFamilyBuilder {
     family: StencilFamilyBuild,
     existing_relocations: HashMap<SmallVec<[StencilRelocation; 8]>, usize>,

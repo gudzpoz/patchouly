@@ -54,7 +54,7 @@ impl RelocationEncoding {
         if bits >= Self::Unknown as u8 {
             Self::Invalid
         } else {
-            unsafe { std::mem::transmute::<u8, Self>(bits) }
+            unsafe { core::mem::transmute::<u8, Self>(bits) }
         }
     }
     const fn into_bits(self) -> u8 {
@@ -75,7 +75,7 @@ impl PatchKind {
         if bits >= Self::Unknown as u8 {
             Self::Unknown
         } else {
-            unsafe { std::mem::transmute::<u8, Self>(bits) }
+            unsafe { core::mem::transmute::<u8, Self>(bits) }
         }
     }
     const fn into_bits(self) -> u8 {
@@ -101,5 +101,80 @@ impl Relocation {
             PatchKind::Target => PatchInfo::Target(self.patch_id()),
             _ => return None,
         })
+    }
+
+    pub fn apply_raw(&self, dest: &mut [u8], value: usize) {
+        let value = value.wrapping_add_signed(self.addend() as isize);
+        let offset = self.offset();
+        let size = self.size();
+        match self.encoding() {
+            RelocationEncoding::Generic => {
+                let size = (size / 8) as usize;
+                dest[offset as usize..][..size].copy_from_slice(&value.to_le_bytes()[..size]);
+            }
+            RelocationEncoding::X86Signed => {
+                let size = (size / 8) as usize;
+                dest[offset as usize..][..size].copy_from_slice(&value.to_le_bytes()[..size]);
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum JumpTarget {
+    /// To the next stencil
+    Next,
+    /// TODO: To a specific block id
+    Target(u16),
+}
+
+pub struct DelayedRelocation {
+    offset: usize,
+    relocation: Relocation,
+    target: u16,
+}
+impl DelayedRelocation {
+    pub fn try_apply(
+        dest: &mut [u8],
+        offset: usize,
+        relocation: Relocation,
+        stack_vars: &[usize],
+        holes: &[usize],
+        jumps: &[JumpTarget],
+    ) -> Option<Self> {
+        let value = match relocation.patch_info().unwrap() {
+            // TODO: unwrap safety?
+            PatchInfo::Hole(i) => holes[i as usize],
+            PatchInfo::Stack(i) => stack_vars[i as usize],
+            PatchInfo::Target(i) => match jumps[i as usize] {
+                // jump to the end
+                JumpTarget::Next => dest.len() - offset - relocation.offset() as usize,
+                // delayed
+                JumpTarget::Target(target) => {
+                    return Some(DelayedRelocation {
+                        offset,
+                        relocation,
+                        target,
+                    });
+                }
+            },
+        };
+
+        relocation.apply_raw(&mut dest[offset..], value);
+        None
+    }
+
+    pub fn target(&self) -> u16 {
+        self.target
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub fn apply(&self, dest: &mut [u8], value: isize) {
+        self.relocation
+            .apply_raw(&mut dest[self.offset..], value as usize);
     }
 }

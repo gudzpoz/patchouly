@@ -7,10 +7,9 @@ use std::{
 };
 
 use memmap2::{Mmap, MmapMut};
-use patchouly_core::{StencilFamily, StencilLibrary, stencils::Variable};
+use patchouly_core::{StencilFamily, StencilLibrary, relocation::{DelayedRelocation, JumpTarget}, stencils::Variable};
 
-pub use crate::patch::JumpTarget;
-use crate::patch::{CopyNPatch, DelayedRelocation, PatchArgs};
+use crate::patch::{CopyNPatch, PatchArgs};
 
 #[derive(Default)]
 pub struct ProgramBlocks {
