@@ -1,10 +1,10 @@
-use patchouly_core::stencils::Variable;
+use patchouly_core::stencils::Location;
 use smallvec::SmallVec;
 
 #[derive(Default, Debug)]
 pub struct StencilArgs {
-    pub inputs: SmallVec<[Variable; 4]>,
-    pub outputs: SmallVec<[Variable; 4]>,
+    pub inputs: SmallVec<[Location; 4]>,
+    pub outputs: SmallVec<[Location; 4]>,
 }
 impl StencilArgs {
     pub fn parse(inputs: &str, outputs: &str) -> Option<Self> {
@@ -15,7 +15,7 @@ impl StencilArgs {
     }
 }
 
-fn parse_args(args: &str) -> Option<SmallVec<[Variable; 4]>> {
+fn parse_args(args: &str) -> Option<SmallVec<[Location; 4]>> {
     if args.is_empty() {
         return Some(SmallVec::new());
     }
@@ -24,10 +24,10 @@ fn parse_args(args: &str) -> Option<SmallVec<[Variable; 4]>> {
     let mut args = SmallVec::new();
     for arg in split {
         if arg == "0" {
-            args.push(Variable::Stack(0));
+            args.push(Location::Stack(0));
         } else {
             let arg: u16 = arg.parse().ok()?;
-            args.push(Variable::Register(arg - 1));
+            args.push(Location::Register(arg - 1));
         }
     }
     Some(args)

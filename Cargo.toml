@@ -25,13 +25,14 @@ patchouly-build = { path = "crates/patchouly-build" }
 patchouly-macros = { path = "crates/patchouly-macros" }
 
 example-calc = { path = "examples/calc" }
-example-calc-stencils = { path = "examples/calc" }
+example-calc-stencils = { path = "examples/calc-stencils" }
 book-tests = { path = "book/tests" }
 
 ### Common
 bitfields = "1.0.3"
 itertools = "0.14.0"
 once_cell = "1.21.4"
+slab = "0.4.12"
 smallvec = "1.15.1"
 
 ### Stencil generation
@@ -53,4 +54,5 @@ pretty_assertions = "1.4.1"
 patchouly-core.workspace = true
 
 memmap2.workspace = true
+slab.workspace = true
 smallvec.workspace = true

@@ -1,13 +1,13 @@
 use patchouly_core::{
     Stencil, StencilFamily,
     relocation::{DelayedRelocation, JumpTarget},
-    stencils::Variable,
+    stencils::Location,
 };
 use smallvec::SmallVec;
 
 pub struct PatchArgs<'a, const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
-    pub &'a [Variable; IN],
-    pub &'a [Variable; OUT],
+    pub &'a [Location; IN],
+    pub &'a [Location; OUT],
     pub &'a [usize; HOLES],
     pub &'a [JumpTarget; JUMPS],
 );
@@ -39,7 +39,7 @@ impl<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>
     ) {
         let mut stack_vars = SmallVec::<[usize; 8]>::new();
         for var in inputs.iter().chain(outputs.iter()) {
-            if let Variable::Stack(i) = var {
+            if let Location::Stack(i) = var {
                 stack_vars.push(*i as usize);
             }
         }

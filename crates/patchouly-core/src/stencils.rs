@@ -26,24 +26,24 @@ pub struct Stencil<const IN: usize, const OUT: usize, const HOLES: usize, const 
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum Variable {
+pub enum Location {
     Stack(u16),
     Register(u16),
 }
-impl Variable {
+impl Location {
     #[doc(hidden)]
     pub fn from_bits(bits: u16) -> Self {
         match bits {
-            0 => Variable::Stack(0),
-            _ => Variable::Register(bits - 1),
+            0 => Location::Stack(0),
+            _ => Location::Register(bits - 1),
         }
     }
 
     #[doc(hidden)]
     pub fn into_bits(&self) -> u16 {
         match self {
-            Variable::Stack(_) => 0,
-            Variable::Register(i) => i + 1,
+            Location::Stack(_) => 0,
+            Location::Register(i) => i + 1,
         }
     }
 }
@@ -74,21 +74,21 @@ impl<
 
     pub fn select(
         &self,
-        inputs: &[Variable; IN],
-        outputs: &[Variable; OUT],
+        inputs: &[Location; IN],
+        outputs: &[Location; OUT],
     ) -> &Stencil<IN, OUT, HOLES, JUMPS> {
         &self.stencils[io_to_index(inputs, outputs, MAX_REGS)]
     }
 }
 
 #[doc(hidden)]
-pub fn io_to_index(inputs: &[Variable], outputs: &[Variable], max_regs: usize) -> usize {
+pub fn io_to_index(inputs: &[Location], outputs: &[Location], max_regs: usize) -> usize {
     let mut i = 0;
     for var in inputs.iter().chain(outputs.iter()) {
         i = max_regs * i
             + match var {
-                Variable::Stack(_) => 0,
-                Variable::Register(i) => *i as usize + 1,
+                Location::Stack(_) => 0,
+                Location::Register(i) => *i as usize + 1,
             };
     }
     i
@@ -98,17 +98,17 @@ pub fn io_to_index(inputs: &[Variable], outputs: &[Variable], max_regs: usize) -
 pub fn index_to_io_lossy(
     index: usize,
     max_regs: usize,
-    inputs: &mut [Variable],
-    outputs: &mut [Variable],
+    inputs: &mut [Location],
+    outputs: &mut [Location],
 ) {
-    fn process_index(mut index: usize, max_regs: usize, slots: &mut [Variable]) -> usize {
+    fn process_index(mut index: usize, max_regs: usize, slots: &mut [Location]) -> usize {
         for v in slots.iter_mut().rev() {
             let reg = index % max_regs;
             index = (index - reg) / max_regs;
             *v = if reg == 0 {
-                Variable::Stack(0)
+                Location::Stack(0)
             } else {
-                Variable::Register(reg as u16 - 1)
+                Location::Register(reg as u16 - 1)
             };
         }
         index
@@ -169,8 +169,8 @@ mod tests {
         let len = stencils_len(4, 4, 10);
         for _ in 0..10000 {
             i = i.wrapping_mul(31);
-            let mut inputs = [Variable::Stack(0); 4];
-            let mut outputs = [Variable::Stack(0); 4];
+            let mut inputs = [Location::Stack(0); 4];
+            let mut outputs = [Location::Stack(0); 4];
             index_to_io_lossy(i % len, 10, &mut inputs, &mut outputs);
             assert_eq!(io_to_index(&inputs, &outputs, 10), i % len);
         }

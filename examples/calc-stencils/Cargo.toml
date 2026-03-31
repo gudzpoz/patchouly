@@ -1,5 +1,5 @@
 [package]
-name = "calc-stencils"
+name = "example-calc-stencils"
 version = "0.1.0"
 edition.workspace = true
 

@@ -7,7 +7,7 @@ use std::{
 };
 
 use memmap2::{Mmap, MmapMut};
-use patchouly_core::{StencilFamily, StencilLibrary, relocation::{DelayedRelocation, JumpTarget}, stencils::Variable};
+use patchouly_core::{StencilFamily, StencilLibrary, relocation::{DelayedRelocation, JumpTarget}, stencils::Location};
 
 use crate::patch::{CopyNPatch, PatchArgs};
 
@@ -41,8 +41,8 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
     pub fn add<const IN: usize, const OUT: usize, const HOLES: usize>(
         &mut self,
         stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, 1>,
-        inputs: &[Variable; IN],
-        outputs: &[Variable; OUT],
+        inputs: &[Location; IN],
+        outputs: &[Location; OUT],
         holes: &[usize; HOLES],
     ) -> Option<()> {
         if self.ended {
@@ -55,7 +55,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
     pub fn ret<const IN: usize, const HOLES: usize>(
         &mut self,
         stencil: &StencilFamily<IN, 0, MAX_REGS, HOLES, 0>,
-        inputs: &[Variable; IN],
+        inputs: &[Location; IN],
         holes: &[usize; HOLES],
     ) -> Option<()> {
         self.ended = true;
@@ -65,8 +65,8 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
     pub fn branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
         &mut self,
         stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
-        inputs: &[Variable; IN],
-        outputs: &[Variable; OUT],
+        inputs: &[Location; IN],
+        outputs: &[Location; OUT],
         holes: &[usize; HOLES],
         jumps: &[JumpTarget; JUMPS],
     ) -> Option<()> {
@@ -77,8 +77,8 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
     fn emit<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
         &mut self,
         stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
-        inputs: &[Variable; IN],
-        outputs: &[Variable; OUT],
+        inputs: &[Location; IN],
+        outputs: &[Location; OUT],
         holes: &[usize; HOLES],
         jumps: &[JumpTarget; JUMPS],
     ) -> Option<()> {

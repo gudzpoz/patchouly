@@ -9,7 +9,7 @@ use patchouly_core::StencilStack;
 #[macro_use]
 extern crate patchouly_macros;
 
-struct Stack(Vec<MaybeUninit<usize>>);
+pub struct Stack(pub Vec<MaybeUninit<usize>>);
 impl StencilStack for Stack {
     #[inline]
     fn get(&self, i: usize) -> usize {
@@ -25,6 +25,13 @@ impl StencilStack for Stack {
     }
 }
 impl Stack {
+    pub extern "rust-preserve-none" fn allocate(&mut self, len: usize) {
+        eprintln!("allocate {}", len);
+        self.0.reserve(len);
+        unsafe {
+            self.0.set_len(self.0.len() + len);
+        }
+    }
     #[inline]
     fn fast_allocate(&mut self, len: usize) -> bool {
         if self.0.capacity() >= self.0.len() + len {
@@ -43,10 +50,17 @@ impl Stack {
         }
     }
 }
-struct StackAllocFn(fn(&mut Stack, usize));
+pub struct StackAllocFn(pub extern "rust-preserve-none" fn(&mut Stack, usize));
 impl From<usize> for StackAllocFn {
     fn from(v: usize) -> Self {
-        StackAllocFn(unsafe { std::mem::transmute::<usize, for<'a> fn(&'a mut Stack, usize)>(v) })
+        StackAllocFn(unsafe { std::mem::transmute::<
+            usize, for<'a> extern "rust-preserve-none" fn(&'a mut Stack, usize),
+        >(v) })
+    }
+}
+impl From<StackAllocFn> for usize {
+    fn from(val: StackAllocFn) -> Self {
+        val.0 as usize
     }
 }
 

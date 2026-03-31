@@ -6,10 +6,11 @@ fn main() {}
 
 #[cfg(test)]
 mod tests {
+    use example_calc_stencils::{Stack, StackAllocFn};
     use patchouly::PatchBlock;
     use patchouly_core::{
-        Stencil,
-        stencils::{Variable, index_to_io_lossy, stencils_len},
+        Stencil, StencilStack,
+        stencils::{Location, index_to_io_lossy, stencils_len},
     };
 
     use super::stencils;
@@ -62,8 +63,8 @@ mod tests {
             let mut empty_count = 0;
             for (i, s) in family.iter().enumerate() {
                 if s.into_bits() == 0 {
-                    let mut inputs = vec![Variable::Stack(0); meta.0];
-                    let mut outputs = vec![Variable::Stack(0); meta.1];
+                    let mut inputs = vec![Location::Stack(0); meta.0];
+                    let mut outputs = vec![Location::Stack(0); meta.1];
                     index_to_io_lossy(i, meta.2, &mut inputs, &mut outputs);
                     assert!(
                         has_var_dups(&inputs) || has_var_dups(&outputs),
@@ -92,7 +93,7 @@ mod tests {
         assert_eq!(1000000, stencils_len(6, 0, 10));
         let mut empty_count = 0;
         for i in 0..1000000 {
-            let mut inputs = vec![Variable::Stack(0); 6];
+            let mut inputs = vec![Location::Stack(0); 6];
             index_to_io_lossy(i, 10, &mut inputs, &mut []);
             if has_var_dups(&inputs) {
                 empty_count += 1;
@@ -102,12 +103,12 @@ mod tests {
         assert_eq!(empty_count, 792225);
     }
 
-    fn has_var_dups(vars: &[Variable]) -> bool {
+    fn has_var_dups(vars: &[Location]) -> bool {
         let mut bitset = 0usize;
         for var in vars {
             let bit = match var {
-                Variable::Stack(_) => continue,
-                Variable::Register(i) => i,
+                Location::Stack(_) => continue,
+                Location::Register(i) => i,
             };
             if bitset & (1 << bit) != 0 {
                 return true;
@@ -123,13 +124,13 @@ mod tests {
         block
             .add(
                 &stencils::CALC_ADD_CONST,
-                &[Variable::Register(0)],
-                &[Variable::Register(0)],
+                &[Location::Register(0)],
+                &[Location::Register(0)],
                 &[42],
             )
             .unwrap();
         block
-            .ret(&stencils::CALC_RET, &[Variable::Register(0)], &[])
+            .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
             .unwrap();
         let program = block.finalize(&Default::default()).unwrap();
         eprintln!("{:?}", program);
@@ -154,21 +155,21 @@ mod tests {
         block
             .add(
                 &stencils::CALC_ADD,
-                &[Variable::Register(0), Variable::Register(1)],
-                &[Variable::Register(8)],
+                &[Location::Register(0), Location::Register(1)],
+                &[Location::Register(8)],
                 &[],
             )
             .unwrap();
         block
             .add(
                 &stencils::CALC_ADD_CONST,
-                &[Variable::Register(8)],
-                &[Variable::Register(4)],
+                &[Location::Register(8)],
+                &[Location::Register(4)],
                 &[42],
             )
             .unwrap();
         block
-            .ret(&stencils::CALC_RET, &[Variable::Register(4)], &[])
+            .ret(&stencils::CALC_RET, &[Location::Register(4)], &[])
             .unwrap();
         let program = block.finalize(&Default::default()).unwrap();
         eprintln!("{:?}", program);
@@ -183,6 +184,50 @@ mod tests {
                 i = i.wrapping_mul(31);
                 let result = add2_42(&mut (), i, i);
                 assert_eq!(i.wrapping_mul(2).wrapping_add(42), result);
+            }
+        }
+    }
+
+    #[test]
+    fn test_basic_on_stack() {
+        let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
+        block
+            .add(
+                &stencils::CALC_STACK_ALLOC,
+                &[],
+                &[],
+                &[StackAllocFn(Stack::allocate).into(), 1],
+            )
+            .unwrap();
+        block
+            .add(
+                &stencils::CALC_ADD,
+                &[Location::Register(0), Location::Register(1)],
+                &[Location::Stack(0)],
+                &[],
+            )
+            .unwrap();
+        block
+            .ret(&stencils::CALC_RET, &[Location::Stack(0)], &[])
+            .unwrap();
+        let program = block.finalize(&Default::default()).unwrap();
+        eprintln!("{:?}", program);
+        unsafe {
+            let mut stack = Stack(vec![]);
+            // TODO: not reserving leads to failed calls to Stack::allocate
+            stack.0.reserve(10000);
+            let add2 = std::mem::transmute::<
+                *const u8,
+                extern "rust-preserve-none" fn(&mut Stack, usize, usize) -> usize,
+            >(program.as_ptr());
+
+            let mut i = 1usize;
+            for _ in 0..10000 {
+                i = i.wrapping_mul(31);
+                let result = add2(&mut stack, i, i);
+                let expected = i.wrapping_mul(2);
+                assert_eq!(expected, result);
+                assert_eq!(expected, stack.get(0));
             }
         }
     }
