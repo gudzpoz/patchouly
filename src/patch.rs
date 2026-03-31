@@ -4,12 +4,14 @@ use patchouly_core::{
     stencils::Location,
 };
 use smallvec::SmallVec;
+use std::mem::size_of;
 
 pub struct PatchArgs<'a, const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
     pub &'a [Location; IN],
     pub &'a [Location; OUT],
     pub &'a [usize; HOLES],
     pub &'a [JumpTarget; JUMPS],
+    pub bool,
 );
 pub trait CopyNPatch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize> {
     fn copy(&self, store: &[u8], dest: &mut Vec<u8>);
@@ -17,7 +19,7 @@ pub trait CopyNPatch<const IN: usize, const OUT: usize, const HOLES: usize, cons
         &self,
         store: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
         args: PatchArgs<IN, OUT, HOLES, JUMPS>,
-        dest: &mut [u8],
+        dest: &mut Vec<u8>,
         offset: usize,
         relocations: &mut Vec<DelayedRelocation>,
     );
@@ -32,8 +34,8 @@ impl<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>
     fn patch<const MAX_REGS: usize>(
         &self,
         store: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
-        PatchArgs(inputs, outputs, holes, jumps): PatchArgs<IN, OUT, HOLES, JUMPS>,
-        dest: &mut [u8],
+        PatchArgs(inputs, outputs, holes, jumps, wide): PatchArgs<IN, OUT, HOLES, JUMPS>,
+        dest: &mut Vec<u8>,
         offset: usize,
         relocations: &mut Vec<DelayedRelocation>,
     ) {
@@ -44,7 +46,17 @@ impl<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>
             }
         }
 
-        for relocation in &store.relocation_data[self.relocation_index as usize..] {
+        let mut holes = *holes;
+        if wide {
+            dest.resize(dest.len().next_multiple_of(size_of::<usize>()), 0);
+            for hole in holes.as_mut() {
+                let addr = dest.len();
+                dest.extend_from_slice(hole.to_ne_bytes().as_ref());
+                *hole = addr;
+            }
+        }
+
+        for relocation in self.relocations(store) {
             if relocation.is_invalid() {
                 return;
             }

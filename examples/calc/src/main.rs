@@ -190,6 +190,11 @@ mod tests {
 
     #[test]
     fn test_basic_on_stack() {
+        test_basic_on_stack_push(false);
+        test_basic_on_stack_push(true);
+    }
+
+    fn test_basic_on_stack_push(pop: bool) {
         let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
         block
             .add(
@@ -207,15 +212,35 @@ mod tests {
                 &[],
             )
             .unwrap();
-        block
-            .ret(&stencils::CALC_RET, &[Location::Stack(0)], &[])
-            .unwrap();
+
+        if pop {
+            block
+                .add(
+                    &stencils::CALC___MOVE,
+                    &[Location::Stack(0)], &[Location::Register(0)], &[],
+                )
+                .unwrap();
+            block
+                .add(
+                    &stencils::CALC_STACK_POP,
+                    &[], &[], &[1],
+                )
+                .unwrap();
+            block
+                .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
+                .unwrap();
+        } else {
+            block
+                .ret(&stencils::CALC_RET, &[Location::Stack(0)], &[])
+                .unwrap();
+        }
+
         let program = block.finalize(&Default::default()).unwrap();
         eprintln!("{:?}", program);
         unsafe {
             let mut stack = Stack(vec![]);
-            // TODO: not reserving leads to failed calls to Stack::allocate
-            stack.0.reserve(10000);
+            let mut results = vec![];
+
             let add2 = std::mem::transmute::<
                 *const u8,
                 extern "rust-preserve-none" fn(&mut Stack, usize, usize) -> usize,
@@ -226,9 +251,42 @@ mod tests {
                 i = i.wrapping_mul(31);
                 let result = add2(&mut stack, i, i);
                 let expected = i.wrapping_mul(2);
+                results.push(result);
                 assert_eq!(expected, result);
-                assert_eq!(expected, stack.get(0));
+                if pop {
+                    assert_eq!(0, stack.0.len());
+                } else {
+                    assert_eq!(expected, stack.get(0));
+                }
             }
+            if !pop {
+                assert_eq!(results, stack.0.iter().map(|v| v.assume_init()).collect::<Vec<_>>());
+            }
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_large_hole_value() {
+        let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
+        block
+            .add(
+                &stencils::CALC_ADD_CONST,
+                &[Location::Register(0)],
+                &[Location::Register(0)],
+                &[1usize << 40],
+            )
+            .unwrap();
+        block
+            .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
+            .unwrap();
+        let program = block.finalize(&Default::default()).unwrap();
+        unsafe {
+            let add_large = std::mem::transmute::<
+                *const u8,
+                extern "rust-preserve-none" fn(&mut (), usize) -> usize,
+            >(program.as_ptr());
+            assert_eq!((1usize << 40) + 7, add_large(&mut (), 7));
         }
     }
 }

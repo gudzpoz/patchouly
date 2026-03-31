@@ -7,7 +7,11 @@ use std::{
 };
 
 use memmap2::{Mmap, MmapMut};
-use patchouly_core::{StencilFamily, StencilLibrary, relocation::{DelayedRelocation, JumpTarget}, stencils::Location};
+use patchouly_core::{
+    StencilFamily, StencilLibrary,
+    relocation::{DelayedRelocation, JumpTarget},
+    stencils::Location,
+};
 
 use crate::patch::{CopyNPatch, PatchArgs};
 
@@ -87,7 +91,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         {
             return None;
         }
-        let s = stencil.select(inputs, outputs);
+        let (wide, s) = stencil.select(inputs, outputs, holes);
 
         if self.code.ends_with(self.library.empty) {
             self.code
@@ -96,9 +100,9 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         }
         let from = self.code.len();
         s.copy(self.library.code, &mut self.code);
-        s.patch(
+        s.patch::<MAX_REGS>(
             stencil,
-            PatchArgs(inputs, outputs, holes, jumps),
+            PatchArgs(inputs, outputs, holes, jumps, wide),
             &mut self.code,
             from,
             &mut self.relocations,

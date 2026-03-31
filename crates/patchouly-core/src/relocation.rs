@@ -103,6 +103,17 @@ impl Relocation {
         })
     }
 
+    pub fn supports_value(&self, value: usize) -> bool {
+        if self.relative() {
+            return false;
+        }
+        match self.encoding() {
+            RelocationEncoding::Generic => fits_unsigned(value, self.size()),
+            RelocationEncoding::X86Signed => fits_signed(value as isize, self.size()),
+            _ => false,
+        }
+    }
+
     pub fn apply_raw(&self, dest: &mut [u8], value: usize) {
         let value = value.wrapping_add_signed(self.addend() as isize);
         let offset = self.offset();
@@ -117,6 +128,25 @@ impl Relocation {
                 dest[offset as usize..][..size].copy_from_slice(&value.to_le_bytes()[..size]);
             }
             _ => unreachable!(),
+        }
+    }
+}
+
+fn fits_unsigned(value: usize, bits: u8) -> bool {
+    match bits {
+        0 => value == 0,
+        bits if bits as u32 >= usize::BITS => true,
+        bits => value < (1usize << bits),
+    }
+}
+
+fn fits_signed(value: isize, bits: u8) -> bool {
+    match bits {
+        0 => value == 0,
+        bits if bits as u32 >= isize::BITS => true,
+        bits => {
+            let shift = isize::BITS - bits as u32;
+            (value << shift >> shift) == value
         }
     }
 }
@@ -143,13 +173,13 @@ impl DelayedRelocation {
         holes: &[usize],
         jumps: &[JumpTarget],
     ) -> Option<Self> {
-        let value = match relocation.patch_info().unwrap() {
-            // TODO: unwrap safety?
+        // TODO: unwrap safety?
+        let mut value = match relocation.patch_info().unwrap() {
             PatchInfo::Hole(i) => holes[i as usize],
             PatchInfo::Stack(i) => stack_vars[i as usize],
             PatchInfo::Target(i) => match jumps[i as usize] {
                 // jump to the end
-                JumpTarget::Next => dest.len() - offset - relocation.offset() as usize,
+                JumpTarget::Next => dest.len(),
                 // delayed
                 JumpTarget::Target(target) => {
                     return Some(DelayedRelocation {
@@ -160,6 +190,10 @@ impl DelayedRelocation {
                 }
             },
         };
+
+        if relocation.relative() {
+            value -= offset + relocation.offset() as usize
+        }
 
         relocation.apply_raw(&mut dest[offset..], value);
         None

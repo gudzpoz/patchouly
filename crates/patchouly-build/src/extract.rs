@@ -75,7 +75,10 @@ impl StencilFamilyBuilder {
             relocation_data: Default::default(),
             stencils: vec![],
         };
-        let new_len = stencils_len(family.IN, family.OUT, family.MAX_REGS);
+        let mut new_len = stencils_len(family.IN, family.OUT, family.MAX_REGS);
+        if metadata.holes > 0 {
+            new_len *= 2;
+        }
         family.stencils.resize(new_len, Default::default());
         Self {
             family,
@@ -87,6 +90,7 @@ impl StencilFamilyBuilder {
         &mut self,
         code: Range<usize>,
         io: StencilArgs,
+        wide: bool,
         stencil: SmallVec<[StencilRelocation; 8]>,
     ) -> Result<(), Box<dyn Error>> {
         let holes = stencil
@@ -137,7 +141,7 @@ impl StencilFamilyBuilder {
             code_len: code.len().try_into()?,
             relocation_index: relocation_start.try_into()?,
         };
-        let index = io_to_index(&io.inputs, &io.outputs, self.family.MAX_REGS);
+        let index = io_to_index(&io.inputs, &io.outputs, self.family.MAX_REGS, wide);
         self.family.stencils[index] = stencil;
 
         Ok(())
@@ -192,7 +196,7 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
             } else {
                 continue;
             };
-            let Some((name, io)) = parse_name(sym_name) else {
+            let Some((name, wide, io)) = parse_name(sym_name) else {
                 continue;
             };
             let Some((section, code)) = get_data(&file, &symbol) else {
@@ -255,7 +259,7 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
                     vacant_entry.insert(builder)
                 }
             }
-            .add_stencil(start..all_code.len(), io, relocations)?;
+            .add_stencil(start..all_code.len(), io, wide, relocations)?;
         }
     }
 
@@ -307,7 +311,7 @@ impl Metadata {
     }
 }
 
-fn parse_name(sym_name: &str) -> Option<(&str, StencilArgs)> {
+fn parse_name(sym_name: &str) -> Option<(&str, bool, StencilArgs)> {
     if sym_name.is_empty() {
         return None;
     }
@@ -334,11 +338,10 @@ fn parse_name(sym_name: &str) -> Option<(&str, StencilArgs)> {
     let name = split.next()?;
     let inputs = split.next()?;
     let outputs = split.next()?;
-    if split.next().is_none() {
-        Some((name, StencilArgs::parse(inputs, outputs)?))
-    } else {
-        None
-    }
+    let args = StencilArgs::parse(inputs, outputs)?;
+    let wide = matches!(split.next(), Some("wide"));
+
+    Some((name, wide, args))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -429,15 +432,19 @@ mod tests {
     fn test_parse_name() {
         let max_args = 10;
         let assertions = [
-            ("add_const__1__0", "add_const", 10),
-            ("add_const__9__0", "add_const", 90),
-            ("__empty____", "__empty", 0),
-            ("__move__1__1", "__move", 11),
+            ("add_const__1__0", "add_const", false, 10),
+            ("add_const__9__0__wide", "add_const", true, 190),
+            ("__empty____", "__empty", false, 0),
+            ("__move__1__1", "__move", false, 11),
         ];
-        for (input, name, index) in assertions {
-            let (n, args) = parse_name(input).unwrap();
+        for (input, name, wide, index) in assertions {
+            let (n, is_wide, args) = parse_name(input).unwrap();
             assert_eq!(n, name);
-            assert_eq!(io_to_index(&args.inputs, &args.outputs, max_args), index);
+            assert_eq!(is_wide, wide);
+            assert_eq!(
+                io_to_index(&args.inputs, &args.outputs, max_args, wide),
+                index
+            );
         }
     }
 }

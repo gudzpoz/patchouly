@@ -1,4 +1,4 @@
-use crate::relocation::Relocation;
+use crate::relocation::{PatchInfo, Relocation};
 
 /// Describes the way to pass a variable in and out of a stencil
 pub struct StencilFamily<
@@ -76,13 +76,34 @@ impl<
         &self,
         inputs: &[Location; IN],
         outputs: &[Location; OUT],
-    ) -> &Stencil<IN, OUT, HOLES, JUMPS> {
-        &self.stencils[io_to_index(inputs, outputs, MAX_REGS)]
+        holes: &[usize; HOLES],
+    ) -> (bool, &Stencil<IN, OUT, HOLES, JUMPS>) {
+        let index = io_to_index(inputs, outputs, MAX_REGS, false);
+        let stencil = &self.stencils[index];
+        for reloc in stencil.relocations(self) {
+            if reloc.is_invalid() {
+                return (false, stencil);
+            }
+            if let Some(PatchInfo::Hole(i)) = reloc.patch_info()
+                && !reloc.supports_value(holes[i as usize])
+            {
+                break;
+            }
+        }
+        (
+            true,
+            &self.stencils[index + stencils_len(IN, OUT, MAX_REGS)],
+        )
     }
 }
 
 #[doc(hidden)]
-pub fn io_to_index(inputs: &[Location], outputs: &[Location], max_regs: usize) -> usize {
+pub fn io_to_index(
+    inputs: &[Location],
+    outputs: &[Location],
+    max_regs: usize,
+    wide: bool,
+) -> usize {
     let mut i = 0;
     for var in inputs.iter().chain(outputs.iter()) {
         i = max_regs * i
@@ -91,7 +112,11 @@ pub fn io_to_index(inputs: &[Location], outputs: &[Location], max_regs: usize) -
                 Location::Register(i) => *i as usize + 1,
             };
     }
-    i
+    i + if wide {
+        stencils_len(inputs.len(), outputs.len(), max_regs)
+    } else {
+        0
+    }
 }
 
 #[doc(hidden)]
@@ -100,7 +125,7 @@ pub fn index_to_io_lossy(
     max_regs: usize,
     inputs: &mut [Location],
     outputs: &mut [Location],
-) {
+) -> bool {
     fn process_index(mut index: usize, max_regs: usize, slots: &mut [Location]) -> usize {
         for v in slots.iter_mut().rev() {
             let reg = index % max_regs;
@@ -116,7 +141,8 @@ pub fn index_to_io_lossy(
 
     let index = process_index(index, max_regs, outputs);
     let index = process_index(index, max_regs, inputs);
-    assert_eq!(0, index);
+    assert!(index == 0 || index == 1);
+    index == 1
 }
 
 #[doc(hidden)]
@@ -146,6 +172,13 @@ impl<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>
     pub fn code<'a>(&self, store: &'a [u8]) -> &'a [u8] {
         &store[self.code_index as usize..self.code_index as usize + self.code_len as usize]
     }
+
+    pub fn relocations<'a, const MAX_REGS: usize>(
+        &self,
+        store: &'a StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
+    ) -> &'a [Relocation] {
+        &store.relocation_data[self.relocation_index as usize..]
+    }
 }
 
 #[cfg(test)]
@@ -172,7 +205,7 @@ mod tests {
             let mut inputs = [Location::Stack(0); 4];
             let mut outputs = [Location::Stack(0); 4];
             index_to_io_lossy(i % len, 10, &mut inputs, &mut outputs);
-            assert_eq!(io_to_index(&inputs, &outputs, 10), i % len);
+            assert_eq!(io_to_index(&inputs, &outputs, 10, false), i % len);
         }
     }
 }

@@ -44,7 +44,10 @@ mod tests {
         let assertions = [("1", "0", 10, 10), ("9", "0", 10, 90)];
         for (inputs, outputs, max_args, index) in assertions {
             let args = StencilArgs::parse(inputs, outputs).unwrap();
-            assert_eq!(io_to_index(&args.inputs, &args.outputs, max_args), index);
+            assert_eq!(
+                io_to_index(&args.inputs, &args.outputs, max_args, false),
+                index
+            );
         }
     }
 }

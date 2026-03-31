@@ -4,6 +4,7 @@ mod structs;
 
 use std::{
     error::Error,
+    fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -71,16 +72,16 @@ pub fn extract(rel_stencils_dir: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn dir_to_libname(rel: &Path) -> Result<String, Box<dyn Error>> {
-    let Some(os_name) = rel.file_name() else {
-        return Err("invalid stencils dir".into());
-    };
-    let Some(name) = os_name.to_str() else {
-        return Err("invalid stencils dir".into());
-    };
-    Ok(format!(
-        "lib{}.rlib",
-        name.to_ascii_lowercase().replace("-", "_")
-    ))
+    let manifest = fs::read_to_string(rel.join("Cargo.toml"))?;
+    let name = manifest
+        .lines()
+        .map(str::trim)
+        .find_map(|line| {
+            line.strip_prefix("name = ")
+                .map(|value| value.trim_matches('"'))
+        })
+        .ok_or("package name not found in stencils Cargo.toml")?;
+    Ok(format!("lib{}.rlib", name.replace("-", "_")))
 }
 
 fn find_release_compilation(name: &str, cwd: &Path) -> Option<PathBuf> {

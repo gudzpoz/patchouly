@@ -189,6 +189,37 @@ impl FnSignature {
     }
 }
 
+#[derive(Clone, Copy)]
+struct WidthVariant(bool);
+impl WidthVariant {
+    fn suffix(&self) -> &'static str {
+        match self {
+            WidthVariant(false) => "",
+            WidthVariant(true) => "__wide",
+        }
+    }
+    fn init_clause(&self, var: &syn::Ident, sym: &syn::Ident) -> TokenStream {
+        match self {
+            WidthVariant(false) => quote! {
+                let #var = imp::#sym.as_ptr() as usize;
+            },
+            WidthVariant(true) => quote! {
+                let #var = unsafe { imp::#sym };
+            },
+        }
+    }
+    fn decl_clause(&self, sym: &syn::Ident) -> TokenStream {
+        match self {
+            WidthVariant(false) => quote! {
+                pub static #sym: [u8; 0x10000];
+            },
+            WidthVariant(true) => quote! {
+                pub static #sym: usize;
+            },
+        }
+    }
+}
+
 impl StencilFamily {
     pub fn set_options(&mut self, attr: TokenStream) -> syn::Result<()> {
         let attr = NestedMeta::parse_meta_list(attr)?;
@@ -209,7 +240,16 @@ impl StencilFamily {
         let orig = self.orig.clone();
         let meta = self.generate_meta();
         let target_enum = self.generate_target_enum();
-        let stencils = perm.map(|perm| self.generate_stencil(&perm));
+        let wide = self.sig.hole_names.is_empty();
+        let stencils = perm.map(|perm| {
+            let nw = self.generate_stencil(&perm, WidthVariant(false));
+            if wide {
+                nw
+            } else {
+                let w = self.generate_stencil(&perm, WidthVariant(true));
+                quote! { #nw #w }
+            }
+        });
 
         quote! {
             #meta
@@ -264,20 +304,21 @@ impl StencilFamily {
         }
     }
 
-    fn generate_stencil(&mut self, input_locations: &[u16]) -> TokenStream {
+    fn generate_stencil(&mut self, input_locations: &[u16], wide: WidthVariant) -> TokenStream {
         let name = syn::Ident::new(
             &format!(
-                "__patchouly__{}__{}__{}",
+                "__patchouly__{}__{}__{}{}",
                 self.name,
                 input_locations[..self.sig.inputs as usize].iter().join("_"),
                 input_locations[self.sig.inputs as usize..].iter().join("_"),
+                wide.suffix(),
             ),
             self.name.span(),
         );
 
         let sig = StencilSignature::new(self.sig.inputs as usize, input_locations);
         let arg_list = &sig.arg_list();
-        let [hole_defs, hole_inits, hole_outputs] = self.generate_holes(&sig);
+        let [hole_defs, hole_inits, hole_outputs] = self.generate_holes(&sig, wide);
         let (rets, call) = self.generate_call(&sig);
         let [return_type, next_def, next_call] =
             self.generate_next(arg_list, rets.as_ref().map(|v| &v[..]).unwrap_or(&[]), &sig);
@@ -342,19 +383,19 @@ impl StencilFamily {
         (ret_names, quote! { let #rets = #name(#(#args.into()),*); })
     }
 
-    fn generate_holes(&self, sig: &StencilSignature) -> [Vec<TokenStream>; 3] {
+    fn generate_holes(&self, sig: &StencilSignature, wide: WidthVariant) -> [Vec<TokenStream>; 3] {
         let total = self.sig.hole_names.len() + sig.stack_arg_names.len();
         let mut hole_defs = Vec::with_capacity(total);
         let mut hole_inits = vec![];
         let mut hole_outputs = vec![];
 
         for hole_var in &self.sig.hole_names {
-            let hole_sym =
-                syn::Ident::new(&format!("{}__{}", self.name, hole_var), Span::call_site());
-            hole_inits.push(quote! {
-                let #hole_var = imp::#hole_sym.as_ptr() as usize;
-            });
-            hole_defs.push(hole_sym);
+            let hole_sym = syn::Ident::new(
+                &format!("{}__{}{}", self.name, hole_var, wide.suffix()),
+                Span::call_site(),
+            );
+            hole_inits.push(wide.init_clause(hole_var, &hole_sym));
+            hole_defs.push(wide.decl_clause(&hole_sym));
         }
         for hole in &sig.io_locations[..sig.inputs_num] {
             if let WrapperCallArg::Stack(i) = hole {
@@ -364,7 +405,9 @@ impl StencilFamily {
                 hole_inits.push(quote! {
                     let #hole_var = stack.get(imp::#hole_sym.as_ptr() as usize);
                 });
-                hole_defs.push(hole_sym);
+                hole_defs.push(quote! {
+                    pub static #hole_sym: [u8; 0x10000];
+                });
             }
         }
         for hole in &sig.io_locations[sig.inputs_num..] {
@@ -375,17 +418,11 @@ impl StencilFamily {
                 hole_outputs.push(quote! {
                     stack.set(imp::#hole_sym.as_ptr() as usize, #hole_var.into());
                 });
-                hole_defs.push(hole_sym);
+                hole_defs.push(quote! {
+                    pub static #hole_sym: [u8; 0x10000];
+                });
             }
         }
-        let hole_defs = hole_defs
-            .iter()
-            .map(|sym| {
-                quote! {
-                    pub static #sym: [u8; 0x10000];
-                }
-            })
-            .collect();
 
         if let Some(target_enum) = &self.sig.target_enum {
             for name in &self.sig.target_names {
@@ -742,6 +779,18 @@ mod test {
                         pub fn copy_and_patch_next(stack: &mut super::Stack);
                     } }
                     let hole0 = imp::iconst__hole0.as_ptr() as usize;
+                    let stack0 = iconst(hole0.into());
+                    stack.set(imp::iconst__stack0.as_ptr() as usize, stack0.into());
+                    become imp::copy_and_patch_next(stack);
+                }
+                #[unsafe(no_mangle)]
+                pub unsafe extern "rust-preserve-none" fn __patchouly__iconst____0__wide(stack: &mut Stack) -> () {
+                    mod imp { unsafe extern "rust-preserve-none" {
+                        pub static iconst__hole0__wide: usize;
+                        pub static iconst__stack0: [u8; 0x10000];
+                        pub fn copy_and_patch_next(stack: &mut super::Stack);
+                    } }
+                    let hole0 = unsafe { imp::iconst__hole0__wide };
                     let stack0 = iconst(hole0.into());
                     stack.set(imp::iconst__stack0.as_ptr() as usize, stack0.into());
                     become imp::copy_and_patch_next(stack);
