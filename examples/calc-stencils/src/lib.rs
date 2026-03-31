@@ -53,11 +53,7 @@ impl Stack {
 pub struct StackAllocFn(pub fn(&mut Stack, usize));
 impl From<usize> for StackAllocFn {
     fn from(v: usize) -> Self {
-        StackAllocFn(unsafe {
-            std::mem::transmute::<usize, for<'a> fn(&'a mut Stack, usize)>(
-                v,
-            )
-        })
+        StackAllocFn(unsafe { std::mem::transmute::<usize, for<'a> fn(&'a mut Stack, usize)>(v) })
     }
 }
 impl From<StackAllocFn> for usize {

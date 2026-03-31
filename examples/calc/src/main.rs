@@ -217,14 +217,13 @@ mod tests {
             block
                 .add(
                     &stencils::CALC___MOVE,
-                    &[Location::Stack(0)], &[Location::Register(0)], &[],
+                    &[Location::Stack(0)],
+                    &[Location::Register(0)],
+                    &[],
                 )
                 .unwrap();
             block
-                .add(
-                    &stencils::CALC_STACK_POP,
-                    &[], &[], &[1],
-                )
+                .add(&stencils::CALC_STACK_POP, &[], &[], &[1])
                 .unwrap();
             block
                 .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
@@ -260,7 +259,10 @@ mod tests {
                 }
             }
             if !pop {
-                assert_eq!(results, stack.0.iter().map(|v| v.assume_init()).collect::<Vec<_>>());
+                assert_eq!(
+                    results,
+                    stack.0.iter().map(|v| v.assume_init()).collect::<Vec<_>>()
+                );
             }
         }
     }
@@ -280,13 +282,63 @@ mod tests {
         block
             .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
             .unwrap();
+        let len = block.measure();
         let program = block.finalize(&Default::default()).unwrap();
+        assert_eq!(len, Some(program.len()));
         unsafe {
             let add_large = std::mem::transmute::<
                 *const u8,
                 extern "rust-preserve-none" fn(&mut (), usize) -> usize,
             >(program.as_ptr());
             assert_eq!((1usize << 40) + 7, add_large(&mut (), 7));
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_multiple_large_hole_values() {
+        let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
+        block
+            .add(
+                &stencils::CALC_ADD_CONST,
+                &[Location::Register(0)],
+                &[Location::Register(0)],
+                &[1usize << 40],
+            )
+            .unwrap();
+        block
+            .add(
+                &stencils::CALC_ADD_CONST,
+                &[Location::Register(0)],
+                &[Location::Register(0)],
+                &[1usize << 41],
+            )
+            .unwrap();
+        block
+            .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
+            .unwrap();
+        let len = block.measure();
+        let program = block.finalize(&Default::default()).unwrap();
+        assert_eq!(len, Some(program.len()));
+
+        // constant pool at the end
+        let slice = program.as_slice();
+        assert_eq!(0, slice.len() % 8);
+        assert_eq!(
+            1u64 << 40,
+            u64::from_le_bytes(slice[slice.len() - 16..slice.len() - 8].try_into().unwrap())
+        );
+        assert_eq!(
+            1u64 << 41,
+            u64::from_le_bytes(slice[slice.len() - 8..slice.len()].try_into().unwrap())
+        );
+
+        unsafe {
+            let add_large = std::mem::transmute::<
+                *const u8,
+                extern "rust-preserve-none" fn(&mut (), usize) -> usize,
+            >(program.as_ptr());
+            assert_eq!((1usize << 40) + (1usize << 41) + 7, add_large(&mut (), 7));
         }
     }
 }

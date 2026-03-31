@@ -211,6 +211,7 @@ dependencies = [
  "patchouly-core",
  "slab",
  "smallvec",
+ "thiserror",
 ]
 
 [[package]]

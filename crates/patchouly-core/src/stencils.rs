@@ -9,6 +9,8 @@ pub struct StencilFamily<
     const JUMPS: usize,
 > {
     /// Pool of stencil relocation data, possibly shared by multiple stencils
+    ///
+    /// The relocation data for each stencil is sorted by relocation offset.
     pub relocation_data: &'static [Relocation],
     pub stencils: &'static [Stencil<IN, OUT, HOLES, JUMPS>],
 }
@@ -24,6 +26,7 @@ pub struct Stencil<const IN: usize, const OUT: usize, const HOLES: usize, const 
     /// `Relocation { encoding: Invalid }` (all zeroes) entry.
     pub relocation_index: u16,
 }
+pub type UntypedStencil = Stencil<0, 0, 0, 0>;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Location {
@@ -178,6 +181,10 @@ impl<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>
         store: &'a StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
     ) -> &'a [Relocation] {
         &store.relocation_data[self.relocation_index as usize..]
+    }
+
+    pub fn untyped(&self) -> UntypedStencil {
+        UntypedStencil::from_bits(self.into_bits())
     }
 }
 

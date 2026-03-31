@@ -229,6 +229,7 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
                 let reloc = new_relocation(offset, &info, patch)?;
                 relocations.push(reloc);
             }
+            relocations.sort_by_key(|reloc| reloc.offset());
 
             let start = all_code.len();
             all_code.extend_from_slice(code);

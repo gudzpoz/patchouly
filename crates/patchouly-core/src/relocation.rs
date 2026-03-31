@@ -159,10 +159,17 @@ pub enum JumpTarget {
     Target(u16),
 }
 
+#[derive(Copy, Clone)]
+pub enum DelayedTarget {
+    Block(u16),
+    Constant(u16),
+    Next,
+}
+
 pub struct DelayedRelocation {
     offset: usize,
     relocation: Relocation,
-    target: u16,
+    target: DelayedTarget,
 }
 impl DelayedRelocation {
     pub fn try_apply(
@@ -177,18 +184,16 @@ impl DelayedRelocation {
         let mut value = match relocation.patch_info().unwrap() {
             PatchInfo::Hole(i) => holes[i as usize],
             PatchInfo::Stack(i) => stack_vars[i as usize],
-            PatchInfo::Target(i) => match jumps[i as usize] {
-                // jump to the end
-                JumpTarget::Next => dest.len(),
-                // delayed
-                JumpTarget::Target(target) => {
-                    return Some(DelayedRelocation {
-                        offset,
-                        relocation,
-                        target,
-                    });
-                }
-            },
+            PatchInfo::Target(i) => {
+                return Some(DelayedRelocation {
+                    offset,
+                    relocation,
+                    target: match jumps[i as usize] {
+                        JumpTarget::Next => DelayedTarget::Next,
+                        JumpTarget::Target(target) => DelayedTarget::Block(target),
+                    },
+                });
+            }
         };
 
         if relocation.relative() {
@@ -199,7 +204,23 @@ impl DelayedRelocation {
         None
     }
 
-    pub fn target(&self) -> u16 {
+    pub fn constant(offset: usize, relocation: Relocation, constant: u16) -> Self {
+        Self {
+            offset,
+            relocation,
+            target: DelayedTarget::Constant(constant),
+        }
+    }
+
+    pub fn next(offset: usize, relocation: Relocation) -> Self {
+        Self {
+            offset,
+            relocation,
+            target: DelayedTarget::Next,
+        }
+    }
+
+    pub fn target(&self) -> DelayedTarget {
         self.target
     }
 
@@ -207,8 +228,19 @@ impl DelayedRelocation {
         self.offset
     }
 
-    pub fn apply(&self, dest: &mut [u8], value: isize) {
-        self.relocation
-            .apply_raw(&mut dest[self.offset..], value as usize);
+    pub fn location(&self) -> usize {
+        self.offset + self.relocation.offset() as usize
+    }
+
+    pub fn resolve(&self, base: usize, value: usize) -> usize {
+        if self.relocation.relative() {
+            value.wrapping_sub(base + self.offset + self.relocation.offset() as usize)
+        } else {
+            value
+        }
+    }
+
+    pub fn apply(&self, dest: &mut [u8], value: usize) {
+        self.relocation.apply_raw(&mut dest[self.offset..], value);
     }
 }
