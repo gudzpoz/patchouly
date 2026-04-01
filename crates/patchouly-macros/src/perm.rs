@@ -5,9 +5,9 @@ use smallvec::SmallVec;
 /// Iterate over all argument/return locations
 ///
 /// In the returned vectors, a `0` means the argument/return is put
-/// on the stack; otherwise, it is put in a register. Many arguments
-/// can be put onto the stack at the same time, but they will not share
-/// a register; an argument can share a register with a return value, though.
+/// on the stack; otherwise, it is put in a register. Note that two
+/// arguments can share the same registers (for things like `a + a`),
+/// but two return values can't.
 pub struct RegPermutation {
     inputs: usize,
     current: SmallVec<[u16; 8]>,
@@ -42,12 +42,13 @@ impl Iterator for RegPermutation {
                     }
                     break;
                 }
-                let range = if i >= self.inputs {
-                    self.inputs..i
-                } else {
-                    0..i
-                };
-                if self.current[range].iter().all(|&x| x != self.current[i]) {
+                if i < self.inputs {
+                    break 'inc;
+                }
+                if self.current[self.inputs..i]
+                    .iter()
+                    .all(|&x| x != self.current[i])
+                {
                     break 'inc;
                 }
             }
@@ -98,8 +99,34 @@ mod tests {
         assert_eq!(iter.next(), Some(vec![1, 1].into()));
         assert_eq!(iter.next(), None);
 
+        let mut iter = RegPermutation::new(2, 0, NonZero::new(2).unwrap());
+        assert_eq!(iter.next(), Some(vec![0, 0].into()));
+        assert_eq!(iter.next(), Some(vec![0, 1].into()));
+        assert_eq!(iter.next(), Some(vec![1, 0].into()));
+        assert_eq!(iter.next(), Some(vec![1, 1].into()));
+        assert_eq!(iter.next(), None);
+
         let mut iter = RegPermutation::new(1, 1, NonZero::new(10).unwrap());
         for _ in 0..100 {
+            assert!(iter.next().is_some());
+        }
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_two_outs() {
+        let mut iter = RegPermutation::new(0, 2, NonZero::new(2).unwrap());
+        assert_eq!(iter.next(), Some(vec![0, 0].into()));
+        assert_eq!(iter.next(), Some(vec![0, 1].into()));
+        assert_eq!(iter.next(), Some(vec![1, 0].into()));
+        // SKIP: assert_eq!(iter.next(), Some(vec![1, 1].into()));
+        assert_eq!(iter.next(), None);
+
+        let mut iter = RegPermutation::new(0, 2, NonZero::new(10).unwrap());
+        for i in 0..100 {
+            if i != 0 && i % 10 == i / 10 {
+                continue;
+            }
             assert!(iter.next().is_some());
         }
         assert_eq!(iter.next(), None);
@@ -121,9 +148,9 @@ mod tests {
         assert_eq!(iter.next(), Some(vec![1, 0, 0].into()));
         assert_eq!(iter.next(), Some(vec![1, 0, 1].into()));
         assert_eq!(iter.next(), Some(vec![1, 0, 2].into()));
-        // SKIP: assert_eq!(iter.next(), Some(vec![1, 1, 0].into()));
-        // SKIP: assert_eq!(iter.next(), Some(vec![1, 1, 1].into()));
-        // SKIP: assert_eq!(iter.next(), Some(vec![1, 1, 2].into()));
+        assert_eq!(iter.next(), Some(vec![1, 1, 0].into()));
+        assert_eq!(iter.next(), Some(vec![1, 1, 1].into()));
+        assert_eq!(iter.next(), Some(vec![1, 1, 2].into()));
         assert_eq!(iter.next(), Some(vec![1, 2, 0].into()));
         assert_eq!(iter.next(), Some(vec![1, 2, 1].into()));
         assert_eq!(iter.next(), Some(vec![1, 2, 2].into()));
@@ -134,9 +161,9 @@ mod tests {
         assert_eq!(iter.next(), Some(vec![2, 1, 0].into()));
         assert_eq!(iter.next(), Some(vec![2, 1, 1].into()));
         assert_eq!(iter.next(), Some(vec![2, 1, 2].into()));
-        // SKIP: assert_eq!(iter.next(), Some(vec![2, 2, 0].into()));
-        // SKIP: assert_eq!(iter.next(), Some(vec![2, 2, 1].into()));
-        // SKIP: assert_eq!(iter.next(), Some(vec![2, 2, 2].into()));
+        assert_eq!(iter.next(), Some(vec![2, 2, 0].into()));
+        assert_eq!(iter.next(), Some(vec![2, 2, 1].into()));
+        assert_eq!(iter.next(), Some(vec![2, 2, 2].into()));
         assert_eq!(iter.next(), None);
     }
 }

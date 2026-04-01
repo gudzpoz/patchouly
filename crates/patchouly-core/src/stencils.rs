@@ -28,6 +28,27 @@ pub struct Stencil<const IN: usize, const OUT: usize, const HOLES: usize, const 
 }
 pub type UntypedStencil = Stencil<0, 0, 0, 0>;
 
+pub struct SelectedStencil<
+    const IN: usize,
+    const OUT: usize,
+    const HOLES: usize,
+    const JUMPS: usize,
+> {
+    pub wide: bool,
+    pub stencil: &'static Stencil<IN, OUT, HOLES, JUMPS>,
+}
+impl<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>
+    SelectedStencil<IN, OUT, HOLES, JUMPS>
+{
+    fn new(wide: bool, stencil: &'static Stencil<IN, OUT, HOLES, JUMPS>) -> Option<Self> {
+        if stencil.code_len == 0 {
+            None
+        } else {
+            Some(Self { wide, stencil })
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Location {
     Stack(u16),
@@ -80,12 +101,12 @@ impl<
         inputs: &[Location; IN],
         outputs: &[Location; OUT],
         holes: &[usize; HOLES],
-    ) -> (bool, &Stencil<IN, OUT, HOLES, JUMPS>) {
+    ) -> Option<SelectedStencil<IN, OUT, HOLES, JUMPS>> {
         let index = io_to_index(inputs, outputs, MAX_REGS, false);
         let stencil = &self.stencils[index];
         for reloc in stencil.relocations(self) {
             if reloc.is_invalid() {
-                return (false, stencil);
+                return SelectedStencil::new(false, stencil);
             }
             if let Some(PatchInfo::Hole(i)) = reloc.patch_info()
                 && !reloc.supports_value(holes[i as usize])
@@ -93,7 +114,7 @@ impl<
                 break;
             }
         }
-        (
+        SelectedStencil::new(
             true,
             &self.stencils[index + stencils_len(IN, OUT, MAX_REGS)],
         )

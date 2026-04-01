@@ -9,7 +9,7 @@ use memmap2::{Mmap, MmapMut};
 use patchouly_core::{
     Stencil, StencilFamily, StencilLibrary,
     relocation::{DelayedRelocation, DelayedTarget, JumpTarget, PatchInfo},
-    stencils::Location,
+    stencils::{Location, SelectedStencil},
 };
 use smallvec::SmallVec;
 use thiserror::Error;
@@ -28,6 +28,8 @@ impl ProgramBlocks {
 pub enum PatchError {
     #[error("invalid register")]
     InvalidRegister,
+    #[error("stencil not found")]
+    StencilNotFound,
     #[error("patch block must be ended with an returning or switching stencil")]
     NotEnded,
     #[error("last stencil was not returning or switching")]
@@ -134,7 +136,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
     /// tries to jump to the next stencil.
     fn emit<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
         &mut self,
-        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
+        stencils: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
         inputs: &[Location; IN],
         outputs: &[Location; OUT],
         holes: &[usize; HOLES],
@@ -145,7 +147,10 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         {
             return Err(PatchError::InvalidRegister);
         }
-        let (wide, s) = stencil.select(inputs, outputs, holes);
+        let Some(SelectedStencil { wide, stencil }) = stencils.select(inputs, outputs, holes)
+        else {
+            return Err(PatchError::StencilNotFound);
+        };
 
         let next_target = self.code.len();
         if let Some(last) = self.next_relocations.pop() {
@@ -162,8 +167,8 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
 
         let from = self.code.len();
         self.copy_and_patch::<IN, OUT, HOLES, JUMPS>(
+            stencils,
             stencil,
-            s,
             PatchArgs(inputs, outputs, holes, jumps, wide),
             from,
         );

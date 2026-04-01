@@ -10,7 +10,7 @@ mod tests {
     use patchouly::PatchBlock;
     use patchouly_core::{
         Stencil, StencilStack,
-        stencils::{Location, index_to_io_lossy, stencils_len},
+        stencils::{Location, index_to_io_lossy, io_to_index},
     };
 
     use super::stencils;
@@ -89,18 +89,35 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_count() {
-        assert_eq!(1000000, stencils_len(6, 0, 10));
-        let mut empty_count = 0;
-        for i in 0..1000000 {
-            let mut inputs = vec![Location::Stack(0); 6];
-            index_to_io_lossy(i, 10, &mut inputs, &mut []);
-            if has_var_dups(&inputs) {
-                empty_count += 1;
-            }
+    fn test_same_register_input() {
+        let duplicate_input_indices = [
+            io_to_index(
+                &[Location::Register(0), Location::Register(0)],
+                &[Location::Stack(0)],
+                10,
+                false,
+            ),
+            io_to_index(
+                &[Location::Register(0), Location::Register(0)],
+                &[Location::Register(2)],
+                10,
+                false,
+            ),
+            io_to_index(
+                &[Location::Register(8), Location::Register(8)],
+                &[Location::Register(1)],
+                10,
+                false,
+            ),
+        ];
+
+        for index in duplicate_input_indices {
+            assert_ne!(
+                stencils::CALC_ADD.stencils[index].into_bits(),
+                0,
+                "missing duplicate-input stencil at index {index}",
+            );
         }
-        // TODO: make the index more compact?
-        assert_eq!(empty_count, 792225);
     }
 
     fn has_var_dups(vars: &[Location]) -> bool {
@@ -184,6 +201,37 @@ mod tests {
                 i = i.wrapping_mul(31);
                 let result = add2_42(&mut (), i, i);
                 assert_eq!(i.wrapping_mul(2).wrapping_add(42), result);
+            }
+        }
+    }
+
+    #[test]
+    fn test_basic_add_same_input_register_jit() {
+        let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
+        block
+            .add(
+                &stencils::CALC_ADD,
+                &[Location::Register(0), Location::Register(0)],
+                &[Location::Register(2)],
+                &[],
+            )
+            .unwrap();
+        block
+            .ret(&stencils::CALC_RET, &[Location::Register(2)], &[])
+            .unwrap();
+        let program = block.finalize(&Default::default()).unwrap();
+        eprintln!("{:?}", program);
+        unsafe {
+            let add_same = std::mem::transmute::<
+                *const u8,
+                extern "rust-preserve-none" fn(&mut (), usize) -> usize,
+            >(program.as_ptr());
+
+            let mut i = 1usize;
+            for _ in 0..10000 {
+                i = i.wrapping_mul(31);
+                let result = add_same(&mut (), i);
+                assert_eq!(i.wrapping_mul(2), result);
             }
         }
     }
