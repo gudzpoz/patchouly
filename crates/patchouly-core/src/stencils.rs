@@ -49,7 +49,7 @@ impl<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Location {
     Stack(u16),
     Register(u16),

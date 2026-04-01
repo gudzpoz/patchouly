@@ -25,9 +25,12 @@ use crate::stencil::StencilFamily;
 /// pub struct Stack();
 /// /// And it must implement `patchouly_core::StencilStack`:
 /// impl StencilStack for Stack {
-///     fn get(&self, i: usize) -> usize { todo!() }
-///     fn set(&mut self, i: usize, v: usize) { todo!() }
+///     #[inline(always)] fn get(&self, i: usize) -> usize { todo!() }
+///     #[inline(always)] fn set(&mut self, i: usize, v: usize) { todo!() }
 /// }
+/// # impl Stack {
+/// #     #[inline(always)] fn inlinable_fast_allocate(&mut self, n: usize) -> bool { todo!() }
+/// # }
 ///
 /// setup_stencils!("Calc");
 ///
@@ -39,14 +42,27 @@ use crate::stencil::StencilFamily;
 ///
 /// /// Use `#[hole]` to specify compile-time constants:
 /// #[stencil]
-/// fn add_const(a: usize, #[hole] b: usize) -> usize {
-///     a + b
+/// fn add_const(a: usize, #[hole] c: usize) -> usize {
+///     a + c
 /// }
+///
+/// # struct SlowAllocFn(pub fn(&mut Stack, usize));
+/// # impl From<usize> for SlowAllocFn {
+/// #     fn from(n: usize) -> Self { todo!() }
+/// # }
 ///
 /// /// Use `#[stack]` to access the stack:
 /// #[stencil]
-/// fn stack_reserve(#[stack] stack: &mut Stack, n: usize) {
-///     todo!("allocate stack slots for spilled variables")
+/// fn stack_reserve(
+///     #[stack] stack: &mut Stack,
+///     #[hole] slow_alloc: SlowAllocFn,
+///     #[hole] n: usize,
+/// ) {
+///     // All function calls must be inlined
+///     if !stack.inlinable_fast_allocate(n) {
+///         // Non-inlined functions must be externally supplied
+///         slow_alloc.0(stack, n);
+///     }
 /// }
 ///
 /// /// Use `#[target]` to define a control flow target:
@@ -78,6 +94,8 @@ pub fn stencil(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 /// Generates a few things needed by `patchouly_build` to extract stencils.
+///
+/// Each stencil crate should call this exactly once.
 ///
 /// ## Usage
 ///

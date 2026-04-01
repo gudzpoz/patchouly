@@ -7,7 +7,7 @@ fn main() {}
 #[cfg(test)]
 mod tests {
     use example_calc_stencils::{Stack, StackAllocFn};
-    use patchouly::PatchBlock;
+    use patchouly::patch::PatchBlock;
     use patchouly_core::{
         Stencil, StencilStack,
         stencils::{Location, index_to_io_lossy, io_to_index},
@@ -149,7 +149,7 @@ mod tests {
         block
             .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
             .unwrap();
-        let program = block.finalize(&Default::default()).unwrap();
+        let program = block.finalize().unwrap();
         eprintln!("{:?}", program);
         unsafe {
             let add42 = std::mem::transmute::<
@@ -188,7 +188,7 @@ mod tests {
         block
             .ret(&stencils::CALC_RET, &[Location::Register(4)], &[])
             .unwrap();
-        let program = block.finalize(&Default::default()).unwrap();
+        let program = block.finalize().unwrap();
         eprintln!("{:?}", program);
         unsafe {
             let add2_42 = std::mem::transmute::<
@@ -219,7 +219,7 @@ mod tests {
         block
             .ret(&stencils::CALC_RET, &[Location::Register(2)], &[])
             .unwrap();
-        let program = block.finalize(&Default::default()).unwrap();
+        let program = block.finalize().unwrap();
         eprintln!("{:?}", program);
         unsafe {
             let add_same = std::mem::transmute::<
@@ -282,7 +282,7 @@ mod tests {
                 .unwrap();
         }
 
-        let program = block.finalize(&Default::default()).unwrap();
+        let program = block.finalize().unwrap();
         eprintln!("{:?}", program);
         unsafe {
             let mut stack = Stack(vec![]);
@@ -331,7 +331,7 @@ mod tests {
             .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
             .unwrap();
         let len = block.measure();
-        let program = block.finalize(&Default::default()).unwrap();
+        let program = block.finalize().unwrap();
         assert_eq!(len, Some(program.len()));
         unsafe {
             let add_large = std::mem::transmute::<
@@ -366,7 +366,7 @@ mod tests {
             .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
             .unwrap();
         let len = block.measure();
-        let program = block.finalize(&Default::default()).unwrap();
+        let program = block.finalize().unwrap();
         assert_eq!(len, Some(program.len()));
 
         // constant pool at the end
