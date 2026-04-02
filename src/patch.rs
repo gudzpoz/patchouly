@@ -71,7 +71,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         holes: &[usize; HOLES],
     ) -> Result<(), PatchError> {
         if self.ended {
-            return Err(PatchError::NotEnded);
+            return Err(PatchError::AlreadyEnded);
         }
         self.emit(stencil, inputs, outputs, holes, &[JumpTarget::Next])
     }
@@ -86,7 +86,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         self.emit(stencil, inputs, &[], holes, &[])
     }
 
-    pub fn branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
+    pub fn end_branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
         &mut self,
         stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
         inputs: &[Location; IN],
@@ -95,6 +95,17 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         jumps: &[JumpTarget; JUMPS],
     ) -> Result<(), PatchError> {
         self.ended = true;
+        self.branch(stencil, inputs, outputs, holes, jumps)
+    }
+
+    pub fn branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
+        &mut self,
+        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
+        inputs: &[Location; IN],
+        outputs: &[Location; OUT],
+        holes: &[usize; HOLES],
+        jumps: &[JumpTarget; JUMPS],
+    ) -> Result<(), PatchError> {
         self.emit(stencil, inputs, outputs, holes, jumps)
     }
 

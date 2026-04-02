@@ -15,6 +15,7 @@ struct BlockScope<const MAX_REGS: usize> {
 }
 
 pub enum JumpScope {
+    Next,
     Child(BlockId),
     Same(BlockId),
     Parent { to: BlockId, parent: BlockId },
@@ -116,6 +117,14 @@ pub struct PatchBlockBuilder<'a, const MAX_REGS: usize> {
     id: BlockId,
 }
 impl<'a, const MAX_REGS: usize> PatchBlockBuilder<'a, MAX_REGS> {
+    pub fn builder(&mut self) -> &mut PatchFunctionBuilder<MAX_REGS> {
+        self.builder
+    }
+
+    pub fn id(&self) -> BlockId {
+        self.id
+    }
+
     pub fn new_param(&mut self) -> Result<Value, PatchError> {
         let block = &mut self.builder.blocks[self.id.0 as usize];
         if block.parent.is_some() {
@@ -157,20 +166,48 @@ impl<'a, const MAX_REGS: usize> PatchBlockBuilder<'a, MAX_REGS> {
         block.add(stencil, inputs, outputs, holes)
     }
 
+    pub fn end_branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
+        &mut self,
+        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
+        inputs: &[Value; IN],
+        outputs: &[Value; OUT],
+        holes: &[usize; HOLES],
+        jumps: &[JumpScope; JUMPS],
+        next: BlockId,
+    ) -> Result<(), PatchError> {
+        let (inputs, outputs, jumps) = self.branch_prep(inputs, outputs, jumps)?;
+        let block = &mut self.builder.blocks[self.id.0 as usize].block;
+        block.end_branch(stencil, &inputs, &outputs, holes, &jumps)?;
+        self.builder.switch_to_block(next)?;
+        self.id = next;
+        Ok(())
+    }
+
     pub fn branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
-        self,
+        &mut self,
         stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
         inputs: &[Value; IN],
         outputs: &[Value; OUT],
         holes: &[usize; HOLES],
         jumps: &[JumpScope; JUMPS],
     ) -> Result<(), PatchError> {
-        let inputs = &locations(
+        let (inputs, outputs, jumps) = self.branch_prep(inputs, outputs, jumps)?;
+        let block = &mut self.builder.blocks[self.id.0 as usize].block;
+        block.branch(stencil, &inputs, &outputs, holes, &jumps)
+    }
+
+    fn branch_prep<const IN: usize, const OUT: usize, const JUMPS: usize>(
+        &mut self,
+        inputs: &[Value; IN],
+        outputs: &[Value; OUT],
+        jumps: &[JumpScope; JUMPS],
+    ) -> Result<InputPrep<IN, OUT, JUMPS>, PatchError> {
+        let inputs = locations(
             &self.builder.allocator,
             &self.builder.current_scopes,
             inputs,
         )?;
-        let outputs = &locations(
+        let outputs = locations(
             &self.builder.allocator,
             &self.builder.current_scopes,
             outputs,
@@ -183,7 +220,7 @@ impl<'a, const MAX_REGS: usize> PatchBlockBuilder<'a, MAX_REGS> {
             }
             JumpScope::Same(block_id) => {
                 let parent = self.builder.blocks[self.id.0 as usize].parent;
-                self.builder.blocks[block_id.0 as usize].parent = parent;
+                self.builder.blocks[block_id.0 as usize].parent = parent.or(Some(BlockId(0)));
                 JumpTarget::Target(block_id.0)
             }
             JumpScope::Parent { to, parent } => {
@@ -193,12 +230,12 @@ impl<'a, const MAX_REGS: usize> PatchBlockBuilder<'a, MAX_REGS> {
                 self.builder.blocks[to.0 as usize].parent = Some(*parent);
                 JumpTarget::Target(to.0)
             }
+            JumpScope::Next => JumpTarget::Next,
         });
         if block_out_of_scope {
             return Err(PatchError::BlockOutOfScope);
         }
-        let block = &mut self.builder.blocks[self.id.0 as usize].block;
-        block.branch(stencil, inputs, outputs, holes, &jumps)
+        Ok((inputs, outputs, jumps))
     }
 
     pub fn ret<const IN: usize, const HOLES: usize>(
@@ -219,6 +256,8 @@ impl<'a, const MAX_REGS: usize> PatchBlockBuilder<'a, MAX_REGS> {
         )
     }
 }
+
+type InputPrep<const IN: usize, const OUT: usize, const JUMPS: usize> = ([Location; IN], [Location; OUT], [JumpTarget; JUMPS]);
 
 fn locations<const LEN: usize>(
     alloc: &Allocator,
@@ -273,9 +312,8 @@ mod tests {
         block.new_variable().unwrap();
         block.new_variable().unwrap();
         block
-            .branch(&JMP, &[], &[], &[], &[JumpScope::Child(end)])
+            .end_branch(&JMP, &[], &[], &[], &[JumpScope::Child(end)], end)
             .unwrap();
-        let block = builder.switch_to_block(end).unwrap();
         block.ret(&RET, &[], &[]).unwrap();
 
         let program = builder.finalize().unwrap();
