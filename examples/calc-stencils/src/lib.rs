@@ -25,8 +25,7 @@ impl StencilStack for Stack {
     }
 }
 impl Stack {
-    // TODO: extern "rust-preserve-none" seems to clobber registers
-    pub fn allocate(&mut self, len: usize) {
+    pub extern "rust-preserve-none" fn allocate(&mut self, len: usize) {
         self.0.reserve(len);
         unsafe {
             self.0.set_len(self.0.len() + len);
@@ -50,10 +49,14 @@ impl Stack {
         }
     }
 }
-pub struct StackAllocFn(pub fn(&mut Stack, usize));
+pub struct StackAllocFn(pub extern "rust-preserve-none" fn(&mut Stack, usize));
 impl From<usize> for StackAllocFn {
     fn from(v: usize) -> Self {
-        StackAllocFn(unsafe { std::mem::transmute::<usize, for<'a> fn(&'a mut Stack, usize)>(v) })
+        StackAllocFn(unsafe {
+            std::mem::transmute::<usize, for<'a> extern "rust-preserve-none" fn(&'a mut Stack, usize)>(
+                v,
+            )
+        })
     }
 }
 impl From<StackAllocFn> for usize {

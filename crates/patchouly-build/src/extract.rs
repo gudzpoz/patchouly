@@ -135,7 +135,8 @@ impl StencilFamilyBuilder {
                 holes,
                 jumps,
                 relocations,
-            ).into());
+            )
+            .into());
         }
 
         let relocation_start = match self.existing_relocations.entry(relocations) {

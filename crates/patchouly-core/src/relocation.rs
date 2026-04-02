@@ -235,7 +235,7 @@ impl DelayedRelocation {
 
     pub fn resolve(&self, base: usize, value: usize) -> usize {
         if self.relocation.relative() {
-            value.wrapping_sub(base + self.offset + self.relocation.offset() as usize)
+            value.wrapping_sub(base + self.location())
         } else {
             value
         }

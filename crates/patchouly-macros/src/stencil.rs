@@ -316,7 +316,11 @@ impl StencilFamily {
             self.name.span(),
         );
 
-        let sig = StencilSignature::new(self.sig.inputs as usize, input_locations);
+        let sig = StencilSignature::new(
+            self.sig.inputs as usize,
+            input_locations,
+            self.options.registers().get(),
+        );
         let arg_list = &sig.arg_list();
         let [hole_defs, hole_inits, hole_outputs] = self.generate_holes(&sig, wide);
         let (rets, call) = self.generate_call(&sig);
@@ -509,9 +513,7 @@ enum WrapperCallArg {
     Stack(u16),
 }
 impl StencilSignature {
-    fn new(inputs_num: usize, io_locations: &[u16]) -> Self {
-        let max_regs = io_locations.iter().cloned().max().unwrap_or(0);
-
+    fn new(inputs_num: usize, io_locations: &[u16], max_regs: u16) -> Self {
         let mut stack_arg_names = vec![];
         let io_locations: Vec<_> = io_locations
             .iter()
