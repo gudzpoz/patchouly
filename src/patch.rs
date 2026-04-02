@@ -162,10 +162,12 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         let next_target = self.code.len();
         if let Some(last) = self.next_relocations.pop() {
             last.apply(&mut self.code, last.resolve(0, next_target));
-        }
-        if self.code.ends_with(self.library.empty) {
-            self.code
-                .truncate(self.code.len() - self.library.empty.len());
+            if self.code.ends_with(self.library.empty)
+                && last.location() > self.relocations.last().map(|r| r.location()).unwrap_or(0)
+            {
+                self.code
+                    .truncate(self.code.len() - self.library.empty.len());
+            }
         }
         let next_target = self.code.len();
         for relocation in self.next_relocations.drain(..) {

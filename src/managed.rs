@@ -257,7 +257,8 @@ impl<'a, const MAX_REGS: usize> PatchBlockBuilder<'a, MAX_REGS> {
     }
 }
 
-type InputPrep<const IN: usize, const OUT: usize, const JUMPS: usize> = ([Location; IN], [Location; OUT], [JumpTarget; JUMPS]);
+type InputPrep<const IN: usize, const OUT: usize, const JUMPS: usize> =
+    ([Location; IN], [Location; OUT], [JumpTarget; JUMPS]);
 
 fn locations<const LEN: usize>(
     alloc: &Allocator,
