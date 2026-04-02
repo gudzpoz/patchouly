@@ -1,7 +1,12 @@
 [package]
 name = "patchouly-macros"
+description = "Proc macros for patchouly stencil generation."
 version = "0.1.0"
 edition.workspace = true
+
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 [lib]
 path = "src/lib.rs"

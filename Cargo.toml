@@ -1,7 +1,7 @@
 [package]
 name = "patchouly"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
 
 [workspace]
 members = [
@@ -20,10 +20,17 @@ members = [
 
 [workspace.package]
 edition = "2024"
+authors = ["gudzpoz <gudzpoz@live.com>"]
+license = "MIT"
+description = "Copy-and-patch JIT in Rust"
+readme = "README.md"
+homepage = "https://github.com/gudzpoz/patchouly"
+repository = "https://github.com/gudzpoz/patchouly"
+keywords = ["jit", "compile", "compiler", "copy-and-patch"]
 
 [workspace.dependencies]
 patchouly = { path = "." }
-patchouly-core = { path = "crates/patchouly-core" }
+patchouly-core = { path = "crates/patchouly-core", version = "0.1.0" }
 patchouly-build = { path = "crates/patchouly-build" }
 patchouly-macros = { path = "crates/patchouly-macros" }
 
