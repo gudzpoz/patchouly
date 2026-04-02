@@ -6,7 +6,7 @@ fn main() {}
 
 #[cfg(test)]
 mod tests {
-    use example_calc_stencils::{Stack, StackAllocFn};
+    use example_commons::{Stack, StackAllocFn};
     use patchouly::patch::PatchBlock;
     use patchouly_core::{
         Stencil, StencilStack,

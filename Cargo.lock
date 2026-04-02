@@ -110,7 +110,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 name = "example-bf"
 version = "0.1.0"
 dependencies = [
- "example-bf-stencils",
+ "example-commons",
  "patchouly",
  "patchouly-build",
  "patchouly-core",
@@ -120,6 +120,7 @@ dependencies = [
 name = "example-bf-stencils"
 version = "0.1.0"
 dependencies = [
+ "example-commons",
  "patchouly-core",
  "patchouly-macros",
 ]
@@ -128,7 +129,7 @@ dependencies = [
 name = "example-calc"
 version = "0.1.0"
 dependencies = [
- "example-calc-stencils",
+ "example-commons",
  "patchouly",
  "patchouly-build",
  "patchouly-core",
@@ -138,8 +139,16 @@ dependencies = [
 name = "example-calc-stencils"
 version = "0.1.0"
 dependencies = [
+ "example-commons",
  "patchouly-core",
  "patchouly-macros",
+]
+
+[[package]]
+name = "example-commons"
+version = "0.1.0"
+dependencies = [
+ "patchouly-core",
 ]
 
 [[package]]

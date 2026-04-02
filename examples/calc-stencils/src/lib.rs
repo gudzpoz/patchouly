@@ -2,68 +2,11 @@
 #![feature(explicit_tail_calls)]
 #![feature(rust_preserve_none_cc)]
 
-use std::mem::MaybeUninit;
-
+use example_commons::{Stack, StackAllocFn};
 use patchouly_core::StencilStack;
 
 #[macro_use]
 extern crate patchouly_macros;
-
-pub struct Stack(pub Vec<MaybeUninit<usize>>);
-impl StencilStack for Stack {
-    #[inline]
-    fn get(&self, i: usize) -> usize {
-        let i = self.0.len() - i - 1;
-        unsafe { self.0.get_unchecked(i).assume_init() }
-    }
-    #[inline]
-    fn set(&mut self, i: usize, v: usize) {
-        let i = self.0.len() - i - 1;
-        unsafe {
-            self.0.get_unchecked_mut(i).write(v);
-        }
-    }
-}
-impl Stack {
-    pub extern "rust-preserve-none" fn allocate(&mut self, len: usize) {
-        self.0.reserve(len);
-        unsafe {
-            self.0.set_len(self.0.len() + len);
-        }
-    }
-    #[inline]
-    fn fast_allocate(&mut self, len: usize) -> bool {
-        if self.0.capacity() >= self.0.len() + len {
-            unsafe {
-                self.0.set_len(self.0.len() + len);
-            }
-            true
-        } else {
-            false
-        }
-    }
-    #[inline]
-    fn pop_n(&mut self, n: usize) {
-        unsafe {
-            self.0.set_len(self.0.len() - n);
-        }
-    }
-}
-pub struct StackAllocFn(pub extern "rust-preserve-none" fn(&mut Stack, usize));
-impl From<usize> for StackAllocFn {
-    fn from(v: usize) -> Self {
-        StackAllocFn(unsafe {
-            std::mem::transmute::<usize, for<'a> extern "rust-preserve-none" fn(&'a mut Stack, usize)>(
-                v,
-            )
-        })
-    }
-}
-impl From<StackAllocFn> for usize {
-    fn from(val: StackAllocFn) -> Self {
-        val.0 as usize
-    }
-}
 
 setup_stencils!(name = "Calc");
 

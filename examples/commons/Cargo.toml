@@ -1,9 +1,10 @@
 [package]
-name = "example-calc-stencils"
+name = "example-commons"
 version = "0.1.0"
 edition.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [dependencies]
 patchouly-core.workspace = true
-patchouly-macros.workspace = true
-example-commons.workspace = true

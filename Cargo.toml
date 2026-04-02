@@ -13,6 +13,7 @@ members = [
     "examples/bf-stencils",
     "examples/calc",
     "examples/calc-stencils",
+    "examples/commons",
 
     "book/tests",
 ]
@@ -30,6 +31,7 @@ example-bf = { path = "examples/bf" }
 example-bf-stencils = { path = "examples/bf-stencils" }
 example-calc = { path = "examples/calc" }
 example-calc-stencils = { path = "examples/calc-stencils" }
+example-commons = { path = "examples/commons" }
 book-tests = { path = "book/tests" }
 
 ### Common

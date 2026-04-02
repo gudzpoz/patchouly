@@ -7,7 +7,7 @@ edition.workspace = true
 patchouly-build.workspace = true
 
 [dependencies]
-example-bf-stencils.workspace = true
+example-commons.workspace = true
 
 patchouly.workspace = true
 patchouly-core.workspace = true

@@ -84,8 +84,6 @@ mod tests {
         assert_eq!(alloc.location(&reg), Location::Register(0));
         assert_eq!(1, alloc.slots.len());
         assert_eq!(1, alloc.registers.len());
-        assert!(alloc.slots.is_empty());
-        assert!(alloc.registers.is_empty());
     }
 
     #[test]

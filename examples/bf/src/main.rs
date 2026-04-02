@@ -8,7 +8,7 @@ use std::{
     vec,
 };
 
-use example_bf_stencils::{InputFn, OutputFn};
+use example_commons::{InputFn, OutputFn};
 use patchouly::{
     PatchError,
     managed::{JumpScope, PatchFunctionBuilder},
@@ -287,7 +287,9 @@ impl BF {
                             BF::Leaf(leaf)
                         }
                     };
-                    if let Some(BF::Leaf(ops)) = nodes.last_mut() && let BF::Leaf(added) = node {
+                    if let Some(BF::Leaf(ops)) = nodes.last_mut()
+                        && let BF::Leaf(added) = node
+                    {
                         ops.extend(added);
                     } else {
                         nodes.push(node);
