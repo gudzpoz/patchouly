@@ -1,5 +1,5 @@
-mod extract;
-mod generate;
+pub mod extract;
+pub mod generate;
 mod structs;
 
 use std::{
@@ -18,6 +18,8 @@ use std::{
 /// - The internal `.rlib` format used by Rust is assumed to be
 ///   located under some certain directories, named `libXXX.rlib`
 ///   and is an object file.
+/// - The output directory of `cargo rustc --release` is assumed
+///   to be under `$CARGO_TARGET_DIR/release/`.
 ///
 /// If things above are met, this function will probably work by
 /// compiling and extracting stencils into a `$OUT_DIR/{}_stencils.rs`
@@ -32,6 +34,8 @@ use std::{
 pub fn extract(rel_stencils_dir: &str) -> Result<(), Box<dyn Error>> {
     let out_dir = std::env::var("OUT_DIR")?;
     let out_path = Path::new(&out_dir).canonicalize()?;
+    // We need a different target dir to prevent deadlock
+    let target_dir = find_target_dir(&out_path)?.join("patchouly");
     let current_dir = std::env::current_dir()?;
     let stencils_dir = current_dir
         .as_path()
@@ -52,6 +56,8 @@ pub fn extract(rel_stencils_dir: &str) -> Result<(), Box<dyn Error>> {
             "rustc",
             "--release",
             "--lib",
+            "--target-dir",
+            target_dir.to_str().unwrap(),
             "--",
             "-C",
             "relocation-model=static",
@@ -63,8 +69,7 @@ pub fn extract(rel_stencils_dir: &str) -> Result<(), Box<dyn Error>> {
 
     println!("cargo:rerun-if-changed={}/src", stencils_dir.display());
 
-    let rlib = find_release_compilation(&dir_to_libname(&stencils_dir)?, &out_path)
-        .ok_or("stencil rlib not found")?;
+    let rlib = target_dir.join("release").join(dir_to_libname(&stencils_dir)?);
     let extraction = extract::extract(&rlib)?;
     generate::generate(extraction, &out_path)?;
 
@@ -84,17 +89,12 @@ fn dir_to_libname(rel: &Path) -> Result<String, Box<dyn Error>> {
     Ok(format!("lib{}.rlib", name.replace("-", "_")))
 }
 
-fn find_release_compilation(name: &str, cwd: &Path) -> Option<PathBuf> {
-    let mut dir = cwd;
-    loop {
-        let file = dir.join("release").join(name);
-        if file.exists() {
-            return Some(file);
+fn find_target_dir(out_dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    let profile = std::env::var("PROFILE")?;
+    for parent in out_dir.ancestors() {
+        if parent.ends_with(&profile) {
+            return Ok(parent.parent().ok_or("failed to find target dir")?.to_path_buf());
         }
-        if let Some(parent) = dir.parent() {
-            dir = parent;
-            continue;
-        }
-        return None;
     }
+    Err("failed to find target dir".into())
 }
