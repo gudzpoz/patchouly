@@ -1,0 +1,13 @@
+[package]
+name = "example-bf"
+version = "0.1.0"
+edition.workspace = true
+
+[build-dependencies]
+patchouly-build.workspace = true
+
+[dependencies]
+example-bf-stencils.workspace = true
+
+patchouly.workspace = true
+patchouly-core.workspace = true

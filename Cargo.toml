@@ -9,6 +9,8 @@ members = [
     "crates/patchouly-build",
     "crates/patchouly-macros",
 
+    "examples/bf",
+    "examples/bf-stencils",
     "examples/calc",
     "examples/calc-stencils",
 
@@ -24,6 +26,8 @@ patchouly-core = { path = "crates/patchouly-core" }
 patchouly-build = { path = "crates/patchouly-build" }
 patchouly-macros = { path = "crates/patchouly-macros" }
 
+example-bf = { path = "examples/bf" }
+example-bf-stencils = { path = "examples/bf-stencils" }
 example-calc = { path = "examples/calc" }
 example-calc-stencils = { path = "examples/calc-stencils" }
 book-tests = { path = "book/tests" }

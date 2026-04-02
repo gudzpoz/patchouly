@@ -1,0 +1,8 @@
+[package]
+name = "example-bf-stencils"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+patchouly-core.workspace = true
+patchouly-macros.workspace = true
