@@ -319,7 +319,7 @@ impl StencilFamily {
         let sig = StencilSignature::new(
             self.sig.inputs as usize,
             input_locations,
-            self.options.registers().get(),
+            self.options.registers().get() - 1,
         );
         let arg_list = &sig.arg_list();
         let [hole_defs, hole_inits, hole_outputs] = self.generate_holes(&sig, wide);
@@ -698,14 +698,14 @@ mod test {
                 #[inline(always)]
                 pub fn consume(_a: usize) {}
                 #[unsafe(no_mangle)]
-                pub unsafe extern "rust-preserve-none" fn __patchouly__consume__0__(stack: &mut Stack) -> () {
+                pub unsafe extern "rust-preserve-none" fn __patchouly__consume__0__(stack: &mut Stack, pass1: usize) -> () {
                     mod imp { unsafe extern "rust-preserve-none" {
                         pub static consume__stack0: [u8; 0x10000];
-                        pub fn copy_and_patch_next(stack: &mut super::Stack);
+                        pub fn copy_and_patch_next(stack: &mut super::Stack, pass1: usize);
                     } }
                     let stack0 = stack.get(imp::consume__stack0.as_ptr() as usize);
                     let () = consume(stack0.into());
-                    become imp::copy_and_patch_next(stack);
+                    become imp::copy_and_patch_next(stack, pass1.into());
                 }
                 #[unsafe(no_mangle)]
                 pub unsafe extern "rust-preserve-none" fn __patchouly__consume__1__(stack: &mut Stack, in0: usize) -> () {
@@ -737,14 +737,14 @@ mod test {
                     0
                 }
                 #[unsafe(no_mangle)]
-                pub unsafe extern "rust-preserve-none" fn __patchouly__zero____0(stack: &mut Stack) -> () {
+                pub unsafe extern "rust-preserve-none" fn __patchouly__zero____0(stack: &mut Stack, pass1: usize) -> () {
                     mod imp { unsafe extern "rust-preserve-none" {
                         pub static zero__stack0: [u8; 0x10000];
-                        pub fn copy_and_patch_next(stack: &mut super::Stack);
+                        pub fn copy_and_patch_next(stack: &mut super::Stack, pass1: usize);
                     } }
                     let stack0 = zero();
                     stack.set(imp::zero__stack0.as_ptr() as usize, stack0.into());
-                    become imp::copy_and_patch_next(stack);
+                    become imp::copy_and_patch_next(stack, pass1.into());
                 }
                 #[unsafe(no_mangle)]
                 pub unsafe extern "rust-preserve-none" fn __patchouly__zero____1(stack: &mut Stack, out0: usize) -> () {
@@ -864,6 +864,7 @@ mod test {
                 #[unsafe(no_mangle)]
                 pub unsafe extern "rust-preserve-none" fn __patchouly__returns__0__(
                     stack: &mut Stack,
+                    pass1: usize,
                 ) -> usize {
                     mod imp { unsafe extern "rust-preserve-none" {
                         pub static returns__stack0: [u8; 0x10000];

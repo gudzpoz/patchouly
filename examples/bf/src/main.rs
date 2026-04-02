@@ -10,8 +10,7 @@ use std::{
 
 use example_commons::{InputFn, OutputFn};
 use patchouly::{
-    PatchError,
-    managed::{JumpScope, PatchFunctionBuilder},
+    PatchError, Program, managed::{JumpScope, PatchFunctionBuilder}
 };
 
 fn main() -> Result<(), io::Error> {
@@ -21,21 +20,26 @@ fn main() -> Result<(), io::Error> {
         eprintln!("Usage: {} <brainfuck_file(s)> ...", name);
         std::process::exit(1);
     }
+    let mut debug = false;
     while let Some(arg) = args.next() {
         let mut code = String::new();
         if arg == "--" {
             code = args.next().unwrap_or_default();
+        } else if arg == "--debug" {
+            debug = true;
         } else {
             let mut f = std::fs::File::open(&arg)?;
             code.reserve(f.metadata()?.len() as usize);
             f.read_to_string(&mut code)?;
         };
-        compile_and_run(&code).unwrap();
+        compile_and_run(&code, debug).unwrap();
     }
     Ok(())
 }
 
-fn compile_and_run(code: &str) -> Result<(), PatchError> {
+type BFFunction = extern "rust-preserve-none" fn(&mut (), usize, usize, usize) -> usize;
+
+fn compile(code: &str, debug: bool) -> Result<(Program, BFFunction), PatchError> {
     let bf = BF::parse(code.as_bytes());
 
     let mut builder = PatchFunctionBuilder::new(&stencils::BF_STENCIL_LIBRARY);
@@ -186,19 +190,22 @@ fn compile_and_run(code: &str) -> Result<(), PatchError> {
     let program = builder.finalize()?;
     assert_eq!(program.stack_slots, 0);
     let run = unsafe {
-        std::mem::transmute::<
-            *const u8,
-            extern "rust-preserve-none" fn(&mut (), usize, usize, usize) -> usize,
-        >(program.as_ptr())
+        std::mem::transmute::<*const u8, BFFunction>(program.as_ptr())
     };
 
-    eprintln!("{:?}", program);
+    if debug {
+        eprintln!("{:?}", program);
+    }
 
+    Ok((program, run))
+}
+
+fn compile_and_run(code: &str, debug: bool) -> Result<(), PatchError> {
+    let (_bf, run) = compile(code, debug)?;
     let len = 128 * 1024;
     let data = vec![0u8; len + 4096 * 2];
     let result = run(&mut (), data[4096..].as_ptr() as usize, len, 0) as isize;
     println!("\nresult: {}", result);
-
     Ok(())
 }
 
@@ -378,4 +385,18 @@ enum BfVisitOp<'a> {
     Leaf(&'a Vec<Op>),
     IntoLoop,
     OutOfLoop,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_run() {
+        let (_bf, run) = compile("++++[->++++[->----<]<]", false).unwrap();
+        let data = vec![0u8; 3];
+        let result = run(&mut (), data.as_ptr() as usize, data.len(), 0) as isize;
+        assert_eq!(result, 0);
+        assert_eq!(data, [0, 0, (256 - 64) as u8]);
+    }
 }
