@@ -1,0 +1,284 @@
+use memmap2::MmapMut;
+use patchouly_core::{StencilFamily, StencilLibrary, relocation::JumpTarget, stencils::Location};
+use smallvec::SmallVec;
+
+use crate::{
+    PatchError, Program,
+    alloc::{Allocator, BlockId, Value},
+    patch::{PatchBlock, ProgramBlocks},
+};
+
+struct BlockScope<const MAX_REGS: usize> {
+    block: PatchBlock<MAX_REGS>,
+    parent: Option<BlockId>,
+    variables: SmallVec<[Value; 8]>,
+}
+
+pub enum JumpScope {
+    Child(BlockId),
+    Same(BlockId),
+    Parent { to: BlockId, parent: BlockId },
+}
+
+pub struct PatchFunctionBuilder<const MAX_REGS: usize> {
+    library: &'static StencilLibrary<MAX_REGS>,
+    allocator: Allocator,
+    blocks: Vec<BlockScope<MAX_REGS>>,
+    current_scopes: SmallVec<[BlockId; 8]>,
+}
+
+impl<const MAX_REGS: usize> PatchFunctionBuilder<MAX_REGS> {
+    pub fn new(library: &'static StencilLibrary<MAX_REGS>) -> Self {
+        Self {
+            library,
+            allocator: Allocator::new(MAX_REGS - 1),
+            blocks: vec![BlockScope {
+                block: PatchBlock::new(library),
+                parent: None,
+                variables: SmallVec::new(),
+            }],
+            current_scopes: SmallVec::new(),
+        }
+    }
+
+    pub fn create_block(&mut self) -> BlockId {
+        self.blocks.push(BlockScope {
+            block: PatchBlock::new(self.library),
+            parent: None,
+            variables: SmallVec::new(),
+        });
+        BlockId(self.blocks.len() as u16 - 1)
+    }
+
+    pub fn switch_to_entry(&mut self) -> Result<PatchBlockBuilder<'_, MAX_REGS>, PatchError> {
+        self.switch_to_block(BlockId(0))
+    }
+
+    pub fn switch_to_block(
+        &mut self,
+        block: BlockId,
+    ) -> Result<PatchBlockBuilder<'_, MAX_REGS>, PatchError> {
+        if block.0 as usize >= self.blocks.len() {
+            return Err(PatchError::UnresolvedBlockTarget);
+        }
+        if block.0 != 0 {
+            let Some(parent) = &self.blocks[block.0 as usize].parent else {
+                return Err(PatchError::BlockOutOfScope);
+            };
+            let index = self
+                .current_scopes
+                .iter()
+                .position(|v| v == parent)
+                .ok_or(PatchError::BlockOutOfScope)?;
+            for i in (index + 1..self.current_scopes.len()).rev() {
+                for v in self.blocks[self.current_scopes[i].0 as usize]
+                    .variables
+                    .drain(..)
+                {
+                    self.allocator.drop(v);
+                }
+            }
+            self.current_scopes.truncate(index + 1);
+        }
+        self.current_scopes.push(block);
+        Ok(PatchBlockBuilder {
+            builder: self,
+            id: block,
+        })
+    }
+
+    pub fn finalize(self) -> Result<Program, PatchError> {
+        let lens = self
+            .blocks
+            .iter()
+            .map(|v| v.block.measure().ok_or(PatchError::NotEnded))
+            .collect::<Result<Vec<usize>, PatchError>>()?;
+        let (offsets, total) = ProgramBlocks::from_lens(lens);
+        let mut map = MmapMut::map_anon(total)?;
+
+        let base = map.as_ptr() as usize;
+        for (i, block) in self.blocks.iter().enumerate() {
+            block
+                .block
+                .finalize_into(&mut map, base, offsets.offsets[i], &offsets)?;
+        }
+        let map = map.make_exec()?;
+
+        Ok(Program {
+            mmap: map,
+            stack_slots: self.allocator.stack_size(),
+        })
+    }
+}
+
+pub struct PatchBlockBuilder<'a, const MAX_REGS: usize> {
+    builder: &'a mut PatchFunctionBuilder<MAX_REGS>,
+    id: BlockId,
+}
+impl<'a, const MAX_REGS: usize> PatchBlockBuilder<'a, MAX_REGS> {
+    pub fn new_param(&mut self) -> Result<Value, PatchError> {
+        let block = &mut self.builder.blocks[self.id.0 as usize];
+        if block.parent.is_some() {
+            return Err(PatchError::InvalidParams);
+        }
+        self.new_variable()
+    }
+
+    pub fn new_variable(&mut self) -> Result<Value, PatchError> {
+        let value = self
+            .builder
+            .allocator
+            .allocate(self.id)
+            .ok_or(PatchError::OutOfVariables)?;
+        self.builder.blocks[self.id.0 as usize]
+            .variables
+            .push(value);
+        Ok(value)
+    }
+
+    pub fn emit<const IN: usize, const OUT: usize, const HOLES: usize>(
+        &'_ mut self,
+        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, 1>,
+        inputs: &[Value; IN],
+        outputs: &[Value; OUT],
+        holes: &[usize; HOLES],
+    ) -> Result<(), PatchError> {
+        let block = &mut self.builder.blocks[self.id.0 as usize].block;
+        let inputs = &locations(
+            &self.builder.allocator,
+            &self.builder.current_scopes,
+            inputs,
+        )?;
+        let outputs = &locations(
+            &self.builder.allocator,
+            &self.builder.current_scopes,
+            outputs,
+        )?;
+        block.add(stencil, inputs, outputs, holes)
+    }
+
+    pub fn branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
+        self,
+        stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
+        inputs: &[Value; IN],
+        outputs: &[Value; OUT],
+        holes: &[usize; HOLES],
+        jumps: &[JumpScope; JUMPS],
+    ) -> Result<(), PatchError> {
+        let inputs = &locations(
+            &self.builder.allocator,
+            &self.builder.current_scopes,
+            inputs,
+        )?;
+        let outputs = &locations(
+            &self.builder.allocator,
+            &self.builder.current_scopes,
+            outputs,
+        )?;
+        let mut block_out_of_scope = false;
+        let jumps = jumps.each_ref().map(|v| match v {
+            JumpScope::Child(block_id) => {
+                self.builder.blocks[block_id.0 as usize].parent = Some(self.id);
+                JumpTarget::Target(block_id.0)
+            }
+            JumpScope::Same(block_id) => {
+                let parent = self.builder.blocks[self.id.0 as usize].parent;
+                self.builder.blocks[block_id.0 as usize].parent = parent;
+                JumpTarget::Target(block_id.0)
+            }
+            JumpScope::Parent { to, parent } => {
+                if !self.builder.current_scopes.contains(parent) {
+                    block_out_of_scope = true;
+                }
+                self.builder.blocks[to.0 as usize].parent = Some(*parent);
+                JumpTarget::Target(to.0)
+            }
+        });
+        if block_out_of_scope {
+            return Err(PatchError::BlockOutOfScope);
+        }
+        let block = &mut self.builder.blocks[self.id.0 as usize].block;
+        block.branch(stencil, inputs, outputs, holes, &jumps)
+    }
+
+    pub fn ret<const IN: usize, const HOLES: usize>(
+        self,
+        stencil: &StencilFamily<IN, 0, MAX_REGS, HOLES, 0>,
+        inputs: &[Value; IN],
+        holes: &[usize; HOLES],
+    ) -> Result<(), PatchError> {
+        let block = &mut self.builder.blocks[self.id.0 as usize].block;
+        block.ret(
+            stencil,
+            &locations(
+                &self.builder.allocator,
+                &self.builder.current_scopes,
+                inputs,
+            )?,
+            holes,
+        )
+    }
+}
+
+fn locations<const LEN: usize>(
+    alloc: &Allocator,
+    scopes: &[BlockId],
+    values: &[Value; LEN],
+) -> Result<[Location; LEN], PatchError> {
+    if values.iter().all(|v| scopes.contains(&v.scope)) {
+        Ok(values.each_ref().map(|v| alloc.location(v)))
+    } else {
+        Err(PatchError::VariableOutOfScope)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use patchouly_core::{Stencil, StencilFamily, relocation::Relocation};
+
+    use super::*;
+
+    static LIBRARY: StencilLibrary<1> = StencilLibrary {
+        code: b"\0",
+        empty: b"",
+        moves: &StencilFamily {
+            relocation_data: &[],
+            stencils: &[],
+        },
+    };
+
+    static JMP: StencilFamily<0, 0, 1, 0, 1> = StencilFamily {
+        relocation_data: &[Relocation::new()],
+        stencils: &[Stencil {
+            code_index: 0,
+            code_len: 1,
+            relocation_index: 0,
+        }],
+    };
+
+    static RET: StencilFamily<0, 0, 1, 0, 0> = StencilFamily {
+        relocation_data: &[Relocation::new()],
+        stencils: &[Stencil {
+            code_index: 0,
+            code_len: 1,
+            relocation_index: 0,
+        }],
+    };
+
+    #[test]
+    fn test_lifetime_rules() {
+        let mut builder = PatchFunctionBuilder::new(&LIBRARY);
+        let end = builder.create_block();
+        let mut block = builder.switch_to_entry().unwrap();
+        block.new_variable().unwrap();
+        block.new_variable().unwrap();
+        block
+            .branch(&JMP, &[], &[], &[], &[JumpScope::Child(end)])
+            .unwrap();
+        let block = builder.switch_to_block(end).unwrap();
+        block.ret(&RET, &[], &[]).unwrap();
+
+        let program = builder.finalize().unwrap();
+        assert_eq!(program.stack_slots, 2);
+    }
+}

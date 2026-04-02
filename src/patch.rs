@@ -10,11 +10,22 @@ use crate::{PatchError, Program};
 
 #[derive(Default)]
 pub struct ProgramBlocks {
-    offsets: Vec<usize>,
+    pub offsets: Vec<usize>,
 }
 impl ProgramBlocks {
-    pub fn with_offsets(offsets: Vec<usize>) -> Self {
-        Self { offsets }
+    pub fn from_lens(mut lens: Vec<usize>) -> (Self, usize) {
+        let len = if let Some(mut last) = lens.first().cloned() {
+            lens[0] = 0;
+            for i in lens.iter_mut().skip(1) {
+                let next = last + *i;
+                *i = last;
+                last = next;
+            }
+            last
+        } else {
+            0
+        };
+        (Self { offsets: lens }, len)
     }
 
     fn resolve_target(&self, block: u16) -> Option<usize> {
@@ -22,6 +33,7 @@ impl ProgramBlocks {
     }
 }
 
+#[derive(Clone)]
 pub struct PatchBlock<const MAX_REGS: usize> {
     library: &'static StencilLibrary<MAX_REGS>,
     code: Vec<u8>,
@@ -285,7 +297,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
 
         Ok(Program {
             mmap: map,
-            _stack_slots: 0,
+            stack_slots: 0,
         })
     }
 }

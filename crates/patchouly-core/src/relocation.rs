@@ -166,6 +166,7 @@ pub enum DelayedTarget {
     Next,
 }
 
+#[derive(Clone)]
 pub struct DelayedRelocation {
     offset: usize,
     relocation: Relocation,

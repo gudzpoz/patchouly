@@ -1,3 +1,5 @@
+mod alloc;
+pub mod managed;
 pub mod patch;
 
 use std::{
@@ -21,13 +23,21 @@ pub enum PatchError {
     InvalidEnd,
     #[error("block target not found")]
     UnresolvedBlockTarget,
+    #[error("a block must be branched into before emitting code")]
+    BlockOutOfScope,
+    #[error("one can only add params for the entry block")]
+    InvalidParams,
+    #[error("variable not found in current scope")]
+    VariableOutOfScope,
+    #[error("unable to allocate slot for variable")]
+    OutOfVariables,
     #[error("unable to mmap")]
     MmapError(#[from] io::Error),
 }
 
 pub struct Program {
     mmap: Mmap,
-    _stack_slots: usize,
+    pub stack_slots: u16,
 }
 
 impl Program {
