@@ -1,7 +1,22 @@
 [package]
 name = "patchouly"
+description = "A copy-and-patch JIT framework in Rust"
 version = "0.1.0"
 edition.workspace = true
+
+authors.workspace = true
+license.workspace = true
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+
+include = [
+    "src/**/*.rs",
+    "Cargo.toml",
+    "LICENSE",
+    "./README.md",
+]
 
 [workspace]
 members = [
@@ -22,7 +37,6 @@ members = [
 edition = "2024"
 authors = ["gudzpoz <gudzpoz@live.com>"]
 license = "MIT"
-description = "Copy-and-patch JIT in Rust"
 readme = "README.md"
 homepage = "https://github.com/gudzpoz/patchouly"
 repository = "https://github.com/gudzpoz/patchouly"
