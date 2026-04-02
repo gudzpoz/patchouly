@@ -19,6 +19,8 @@ pub enum PatchError {
     StencilNotFound,
     #[error("patch block must be ended with an returning or switching stencil")]
     NotEnded,
+    #[error("patch block already ended")]
+    AlreadyEnded,
     #[error("last stencil was not returning or switching")]
     InvalidEnd,
     #[error("block target not found")]

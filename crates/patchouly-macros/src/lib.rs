@@ -3,7 +3,7 @@ mod setup;
 mod stencil;
 
 use proc_macro::TokenStream;
-use syn::{LitStr, parse_macro_input};
+use syn::{MetaNameValue, Token, parse_macro_input, punctuated::Punctuated};
 
 use crate::stencil::StencilFamily;
 
@@ -32,7 +32,7 @@ use crate::stencil::StencilFamily;
 /// #     #[inline(always)] fn inlinable_fast_allocate(&mut self, n: usize) -> bool { todo!() }
 /// # }
 ///
-/// setup_stencils!("Calc");
+/// setup_stencils!(name = "Calc");
 ///
 /// /// Annotate it on any function:
 /// #[stencil]
@@ -116,11 +116,17 @@ pub fn stencil(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #     fn set(&mut self, i: usize, v: usize) { todo!() }
 /// # }
 ///
-/// setup_stencils!("Calc"); // prefix of the generated bindings
+/// setup_stencils!(name = "Calc"); // prefix of the generated bindings
 /// # }
 /// ```
 #[proc_macro]
 pub fn setup_stencils(input: TokenStream) -> TokenStream {
-    let name = parse_macro_input!(input as LitStr);
-    setup::setup(name).into()
+    let args = syn::parse::Parser::parse2(
+        Punctuated::<MetaNameValue, Token![,]>::parse_terminated,
+        input.into(),
+    );
+    match args {
+        Ok(args) => setup::setup(args).into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }

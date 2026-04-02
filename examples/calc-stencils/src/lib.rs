@@ -62,7 +62,7 @@ impl From<StackAllocFn> for usize {
     }
 }
 
-setup_stencils!("Calc");
+setup_stencils!(name = "Calc");
 
 #[stencil]
 fn stack_alloc(#[stack] stack: &mut Stack, #[hole] allocate: StackAllocFn, #[hole] n: usize) {

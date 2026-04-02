@@ -88,12 +88,13 @@ impl StencilFamilyBuilder {
 
     fn add_stencil(
         &mut self,
+        name: &str,
         code: Range<usize>,
         io: StencilArgs,
         wide: bool,
-        stencil: SmallVec<[StencilRelocation; 8]>,
+        relocations: SmallVec<[StencilRelocation; 8]>,
     ) -> Result<(), Box<dyn Error>> {
-        let holes = stencil
+        let holes = relocations
             .iter()
             .filter_map(|reloc| {
                 if let PatchKind::Hole = reloc.patch_kind() {
@@ -104,7 +105,7 @@ impl StencilFamilyBuilder {
             })
             .max()
             .unwrap_or(0) as usize;
-        let jumps = stencil
+        let jumps = relocations
             .iter()
             .filter_map(|reloc| {
                 if let PatchKind::Target = reloc.patch_kind() {
@@ -118,13 +119,26 @@ impl StencilFamilyBuilder {
 
         if self.family.IN != io.inputs.len()
             || self.family.OUT != io.outputs.len()
-            || self.family.HOLES != holes
-            || self.family.JUMPS != jumps
+            || self.family.HOLES < holes
+            || self.family.JUMPS < jumps
         {
-            return Err("Stencil family mismatch".into());
+            return Err(format!(
+                r#"stencil family mismatch ({}):
+(inputs, outputs, holes, jumps): expected({}, {}, {}, {}), got ({}, {}, {}, {}) {:?}"#,
+                name,
+                self.family.IN,
+                self.family.OUT,
+                self.family.HOLES,
+                self.family.JUMPS,
+                io.inputs.len(),
+                io.outputs.len(),
+                holes,
+                jumps,
+                relocations,
+            ).into());
         }
 
-        let relocation_start = match self.existing_relocations.entry(stencil) {
+        let relocation_start = match self.existing_relocations.entry(relocations) {
             Entry::Occupied(occupied_entry) => *occupied_entry.get(),
             Entry::Vacant(vacant_entry) => {
                 let start = self.family.relocation_data.len();
@@ -214,8 +228,8 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
                 if sym.section_index().is_some() {
                     // relocation to a defined function/data
                     return Err(format!(
-                        "all function calls/data in stencils must be inlined: {}",
-                        name,
+                        "all function calls/data in stencils must be inlined: {}@{}",
+                        sym_name, name,
                     )
                     .into());
                 }
@@ -260,7 +274,7 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
                     vacant_entry.insert(builder)
                 }
             }
-            .add_stencil(start..all_code.len(), io, wide, relocations)?;
+            .add_stencil(sym_name, start..all_code.len(), io, wide, relocations)?;
         }
     }
 
