@@ -55,6 +55,14 @@ fn left1(i: usize) -> usize {
 fn leftn(i: usize, #[hole] n: usize) -> usize {
     i - n
 }
+#[stencil(n = 4)]
+fn left1_sat(i: usize) -> usize {
+    i.saturating_sub(1)
+}
+#[stencil(n = 4)]
+fn leftn_sat(i: usize, #[hole] n: usize) -> usize {
+    i.saturating_sub(n)
+}
 
 #[stencil(n = 4)]
 fn right1(i: usize) -> usize {
@@ -63,6 +71,14 @@ fn right1(i: usize) -> usize {
 #[stencil(n = 4)]
 fn rightn(i: usize, #[hole] n: usize) -> usize {
     i + n
+}
+#[stencil(n = 4)]
+fn right1_sat(i: usize, #[hole] lim: usize) -> usize {
+    i.saturating_add(1).min(lim)
+}
+#[stencil(n = 4)]
+fn rightn_sat(i: usize, #[hole] n: usize, #[hole] lim: usize) -> usize {
+    i.saturating_add(n).min(lim)
 }
 
 #[stencil(n = 4)]
@@ -88,6 +104,16 @@ fn if_zero(
     } else {
         panic
     }
+}
+#[stencil(n = 4)]
+fn if_zero_unchecked(
+    mut dp: Ptr,
+    _len: usize,
+    i: usize,
+    #[target] then: _,
+    #[target] or_else: _,
+) {
+    if *unsafe { dp.get_mut(i) } == 0 { then } else { or_else }
 }
 
 #[stencil(n = 4)]

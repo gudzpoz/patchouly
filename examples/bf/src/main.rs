@@ -13,6 +13,7 @@ use patchouly::{
     PatchError, Program,
     managed::{JumpScope, PatchFunctionBuilder},
 };
+use stencils::*;
 
 fn main() -> Result<(), io::Error> {
     let mut args = args();
@@ -21,29 +22,48 @@ fn main() -> Result<(), io::Error> {
         eprintln!("Usage: {} <brainfuck_file(s)> ...", name);
         std::process::exit(1);
     }
-    let mut debug = false;
+    let mut opts = CompileOptions {
+        tape_size: 128 * 1024,
+        ..Default::default()
+    };
     while let Some(arg) = args.next() {
-        let mut code = String::new();
-        if arg == "--" {
-            code = args.next().unwrap_or_default();
-        } else if arg == "--debug" {
-            debug = true;
+        if arg == "--debug" {
+            opts.debug = true;
+        } else if arg == "--sat" {
+            opts.saturating = true;
+        } else if arg == "--tape" {
+            opts.tape_size = args
+                .next()
+                .expect("--tape <size>")
+                .parse()
+                .expect("invalid tape size");
         } else {
-            let mut f = std::fs::File::open(&arg)?;
-            code.reserve(f.metadata()?.len() as usize);
-            f.read_to_string(&mut code)?;
+            let mut code = String::new();
+            if arg == "--" {
+                code = args.next().unwrap_or_default();
+            } else {
+                let mut f = std::fs::File::open(&arg)?;
+                code.reserve(f.metadata()?.len() as usize);
+                f.read_to_string(&mut code)?;
+            }
+            compile_and_run(&code, opts).unwrap();
         };
-        compile_and_run(&code, debug).unwrap();
     }
     Ok(())
 }
 
 type BFFunction = extern "rust-preserve-none" fn(&mut (), usize, usize, usize) -> usize;
+#[derive(Default, Clone, Copy)]
+struct CompileOptions {
+    debug: bool,
+    saturating: bool,
+    tape_size: usize,
+}
 
-fn compile(code: &str, debug: bool) -> Result<(Program, BFFunction), PatchError> {
+fn compile(code: &str, opts: CompileOptions) -> Result<(Program, BFFunction), PatchError> {
     let bf = BF::parse(code.as_bytes());
 
-    let mut builder = PatchFunctionBuilder::new(&stencils::BF_STENCIL_LIBRARY);
+    let mut builder = PatchFunctionBuilder::new(&BF_STENCIL_LIBRARY);
 
     let input_fn = &[InputFn(input).into()];
     let print_fn = &[OutputFn(print).into()];
@@ -77,53 +97,69 @@ fn compile(code: &str, debug: bool) -> Result<(Program, BFFunction), PatchError>
                     match op {
                         Op::IncDec(0) | Op::LeftRight(0) => {}
 
-                        Op::IncDec(1) => b.emit(&stencils::BF_ADD1, params, &[], &[])?,
-                        Op::IncDec(-1) => b.emit(&stencils::BF_SUB1, params, &[], &[])?,
+                        Op::IncDec(1) => b.emit(&BF_ADD1, params, &[], &[])?,
+                        Op::IncDec(-1) => b.emit(&BF_SUB1, params, &[], &[])?,
                         Op::IncDec(n) => b.emit(
-                            if *n > 0 {
-                                &stencils::BF_ADDN
-                            } else {
-                                &stencils::BF_SUBN
-                            },
+                            if *n > 0 { &BF_ADDN } else { &BF_SUBN },
                             params,
                             &[],
                             &[(*n as isize).unsigned_abs()],
                         )?,
 
+                        Op::LeftRight(1) if opts.saturating => {
+                            b.emit(&BF_RIGHT1_SAT, &[index], &[index], &[opts.tape_size - 1])?
+                        }
                         Op::LeftRight(1) => {
                             movement += 1;
-                            b.emit(&stencils::BF_RIGHT1, &[index], &[index], &[])?
+                            b.emit(&BF_RIGHT1, &[index], &[index], &[])?
+                        }
+                        Op::LeftRight(-1) if opts.saturating => {
+                            b.emit(&BF_LEFT1_SAT, &[index], &[index], &[])?
                         }
                         Op::LeftRight(-1) => {
                             movement -= 1;
-                            b.emit(&stencils::BF_LEFT1, &[index], &[index], &[])?
+                            b.emit(&BF_LEFT1, &[index], &[index], &[])?
+                        }
+                        Op::LeftRight(n) if opts.saturating => {
+                            let n = *n;
+                            if n > 0 {
+                                b.emit(
+                                    &BF_RIGHTN_SAT,
+                                    &[index],
+                                    &[index],
+                                    &[n as usize, opts.tape_size - 1],
+                                )?
+                            } else {
+                                b.emit(
+                                    &BF_LEFTN_SAT,
+                                    &[index],
+                                    &[index],
+                                    &[n.unsigned_abs() as usize],
+                                )?
+                            }
                         }
                         Op::LeftRight(n) => {
                             movement += *n;
                             b.emit(
-                                if *n > 0 {
-                                    &stencils::BF_RIGHTN
-                                } else {
-                                    &stencils::BF_LEFTN
-                                },
+                                if *n > 0 { &BF_RIGHTN } else { &BF_LEFTN },
                                 &[index],
                                 &[index],
                                 &[n.unsigned_abs() as usize],
                             )?
                         }
 
-                        Op::In => b.emit(&stencils::BF_READ, params, &[], input_fn)?,
-                        Op::Out => b.emit(&stencils::BF_PRINT, params, &[], print_fn)?,
+                        Op::In => b.emit(&BF_READ, params, &[], input_fn)?,
+                        Op::Out => b.emit(&BF_PRINT, params, &[], print_fn)?,
 
-                        Op::SetZero => b.emit(&stencils::BF_SET_0, params, &[], &[])?,
+                        Op::SetZero => b.emit(&BF_SET_0, params, &[], &[])?,
                         Op::AddTo(n) => {
                             movement += n;
-                            b.emit(&stencils::BF_ADD_TO, params, &[], &[*n as isize as usize])?;
+                            b.emit(&BF_ADD_TO, params, &[], &[*n as isize as usize])?;
                         }
                     }
-                    if movement.abs() > 1024 {
+                    if movement.abs() > 1024 && !opts.saturating {
                         b.branch(
-                            &stencils::BF_CHECK,
+                            &BF_CHECK,
                             params,
                             &[],
                             &[],
@@ -137,73 +173,93 @@ fn compile(code: &str, debug: bool) -> Result<(Program, BFFunction), PatchError>
                 let next = blocks[0];
                 let tail = blocks[blocks.len() - 1];
                 blocks = &blocks[1..blocks.len() - 1];
-                b.end_branch(
-                    &stencils::BF_JMP,
-                    &[],
-                    &[],
-                    &[],
-                    &[JumpScope::Same(next)],
-                    next,
-                )?;
+                b.end_branch(&BF_JMP, &[], &[], &[], &[JumpScope::Same(next)], next)?;
                 loop_stack.push((b.id(), tail));
-                b.branch(
-                    &stencils::BF_IF_ZERO,
-                    params,
-                    &[],
-                    &[],
-                    &[
-                        JumpScope::Same(tail),
-                        JumpScope::Next,
-                        JumpScope::Same(panic),
-                    ],
-                )?;
+                if opts.saturating {
+                    b.branch(
+                        &BF_IF_ZERO_UNCHECKED,
+                        params,
+                        &[],
+                        &[],
+                        &[JumpScope::Same(tail), JumpScope::Next],
+                    )?;
+                } else {
+                    b.branch(
+                        &BF_IF_ZERO,
+                        params,
+                        &[],
+                        &[],
+                        &[
+                            JumpScope::Same(tail),
+                            JumpScope::Next,
+                            JumpScope::Same(panic),
+                        ],
+                    )?;
+                }
             }
             BfVisitOp::OutOfLoop => {
                 let (start, tail) = loop_stack.pop().expect("pre-allocated");
-                b.end_branch(
-                    &stencils::BF_IF_ZERO,
-                    params,
-                    &[],
-                    &[],
-                    &[
-                        JumpScope::Same(tail),
-                        JumpScope::Same(start),
-                        JumpScope::Same(panic),
-                    ],
-                    tail,
-                )?;
+                if opts.saturating {
+                    b.end_branch(
+                        &BF_IF_ZERO_UNCHECKED,
+                        params,
+                        &[],
+                        &[],
+                        &[JumpScope::Same(tail), JumpScope::Same(start)],
+                        tail,
+                    )?;
+                } else {
+                    b.end_branch(
+                        &BF_IF_ZERO,
+                        params,
+                        &[],
+                        &[],
+                        &[
+                            JumpScope::Same(tail),
+                            JumpScope::Same(start),
+                            JumpScope::Same(panic),
+                        ],
+                        tail,
+                    )?;
+                }
             }
         }
         Ok(())
     })?;
     b.branch(
-        &stencils::BF_CHECK,
+        &BF_CHECK,
         params,
         &[],
         &[],
         &[JumpScope::Next, JumpScope::Same(panic)],
     )?;
-    b.ret(&stencils::BF_RET, &[], &[0])?;
+    b.ret(&BF_RET, &[], &[0])?;
 
     let panic = builder.switch_to_block(panic)?;
-    panic.ret(&stencils::BF_RET, &[], &[-1isize as usize])?;
+    panic.ret(&BF_RET, &[], &[-1isize as usize])?;
 
     let program = builder.finalize()?;
     assert_eq!(program.stack_slots, 0);
     let run = unsafe { std::mem::transmute::<*const u8, BFFunction>(program.as_ptr()) };
 
-    if debug {
+    if opts.debug {
         eprintln!("{:?}", program);
     }
 
     Ok((program, run))
 }
 
-fn compile_and_run(code: &str, debug: bool) -> Result<(), PatchError> {
-    let (_bf, run) = compile(code, debug)?;
-    let len = 128 * 1024;
-    let data = vec![0u8; len + 4096 * 2];
-    let result = run(&mut (), data[4096..].as_ptr() as usize, len, 0) as isize;
+fn compile_and_run(code: &str, opts: CompileOptions) -> Result<(), PatchError> {
+    let (_bf, run) = compile(code, opts)?;
+    let len = opts.tape_size;
+    let (base, _data) = if opts.saturating {
+        let exact = vec![0u8; len];
+        (exact.as_ptr() as usize, exact)
+    } else {
+        let padded = vec![0u8; len + 4096 * 2];
+        (padded.as_ptr() as usize + 4096, padded)
+    };
+    let result = run(&mut (), base, len, 0) as isize;
     println!("\nresult: {}", result);
     Ok(())
 }
@@ -392,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_run() {
-        let (_bf, run) = compile("++++[->++++[->----<]<]", false).unwrap();
+        let (_bf, run) = compile("++++[->++++[->----<]<]", Default::default()).unwrap();
         let data = vec![0u8; 3];
         let result = run(&mut (), data.as_ptr() as usize, data.len(), 0) as isize;
         assert_eq!(result, 0);

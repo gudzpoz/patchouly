@@ -196,10 +196,51 @@ impl_entrypoint_signature!(RawFn6, usize, usize, usize, usize, usize, usize);
 
 impl Debug for Program {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        #[cfg(all(feature = "std", target_arch = "x86_64"))]
+        fn print_disassembly(bytes: &[u8], f: &mut core::fmt::Formatter<'_>) -> Option<()> {
+            use std::{io::Write, string::String};
+
+            let dir = std::env::temp_dir().join("patchouly");
+            std::fs::create_dir_all(&dir).ok()?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .ok()?
+                .as_nanos();
+            let path = dir.join(std::format!("{}.bin", now));
+            let mut file = std::fs::File::create(&path).ok()?;
+            file.write_all(bytes).ok()?;
+            drop(file);
+
+            let output = std::process::Command::new("objdump")
+                .arg("--target=binary")
+                .arg("--architecture=i386")
+                .arg("--adjust-vma")
+                .arg(std::format!("0x{:x}", bytes.as_ptr() as usize))
+                .arg("--disassemble-all")
+                .arg(&path)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()?;
+            std::fs::remove_file(path).ok()?;
+
+            let s = &String::from_utf8_lossy(&output.stdout);
+            let mark = s.find("Disassembly of section")?;
+            let start = s[mark..].find("\n")? + 1;
+            f.write_str(&s[mark + start..]).ok()?;
+
+            Some(())
+        }
+
         struct ByteLiteral<'a>(&'a [u8]);
         let s = ByteLiteral(self.mmap.deref());
         impl Debug for ByteLiteral<'_> {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                #[cfg(feature = "std")]
+                if let Some(disassembly) = print_disassembly(self.0, f) {
+                    return Ok(disassembly);
+                }
+
                 f.write_char('b')?;
                 f.write_char('"')?;
                 for b in self.0 {

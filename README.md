@@ -155,16 +155,17 @@ using the copy-and-patch technique (taken from our [`examples/bf`](./examples) c
 I ran the same benchmarks as Rodrigodd's [bf-compiler] repo,
 and here are the results (on an AMD 5600G machine):
 
-|   | optimized-jit | optimized-cranelift-jit | patchouly |
-|---|---|---|---|
-| mandelbrot | 1.09 | 1.11 | 0.96 |
-| factor | 0.35 | 0.34 | 0.42 |
+|   | optimized-jit | optimized-cranelift-jit | patchouly | patchouly-sat |
+|---|---|---|---|---|
+| mandelbrot | 1.09 | 1.11 | 0.96 | 1.38 |
+| factor | 0.35 | 0.34 | 0.42 | 0.52 |
 
 - `optimized-jit`: hand-written assembly with dynasm, with out-of-bound wrapping
 - `optimized-cranelift-jit`: cranelift, with some brainf\*\*k optimizations,
   with out-of-bound wrapping
 - `patchouly`: the `examples/bf` crate, using copy-and-patch, with some optimizations
   for common brainf\*\*k patterns, and with ocasional out-of-bound checking + panic return routes
+- `patchouly-sat`: like `patchouly`, but switched to out-of-bound wrapping for fairness
 
 [bf-compiler]: https://github.com/Rodrigodd/bf-compiler
 
