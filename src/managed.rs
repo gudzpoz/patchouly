@@ -1,11 +1,14 @@
-use memmap2::MmapMut;
+use core::ops::DerefMut;
+
+use alloc::{vec, vec::Vec};
+
 use patchouly_core::{StencilFamily, StencilLibrary, relocation::JumpTarget, stencils::Location};
 use smallvec::SmallVec;
 
 use crate::{
-    PatchError, Program,
-    alloc::{Allocator, BlockId, Value},
+    EntrypointSignature, PatchError, Program, TypedProgram,
     patch::{PatchBlock, ProgramBlocks},
+    regs::{Allocator, BlockId, Value},
 };
 
 struct BlockScope<const MAX_REGS: usize> {
@@ -88,27 +91,55 @@ impl<const MAX_REGS: usize> PatchFunctionBuilder<MAX_REGS> {
         })
     }
 
-    pub fn finalize(self) -> Result<Program, PatchError> {
+    pub fn finalize_into<F, M>(self, mut allocator: F) -> Result<(M, u16), PatchError>
+    where
+        F: FnMut(usize) -> Result<(M, usize), PatchError>,
+        M: DerefMut<Target = [u8]>,
+    {
         let lens = self
             .blocks
             .iter()
             .map(|v| v.block.measure().ok_or(PatchError::NotEnded))
             .collect::<Result<Vec<usize>, PatchError>>()?;
         let (offsets, total) = ProgramBlocks::from_lens(lens);
-        let mut map = MmapMut::map_anon(total)?;
+        let (mut map, base) = allocator(total)?;
 
-        let base = map.as_ptr() as usize;
         for (i, block) in self.blocks.iter().enumerate() {
             block
                 .block
                 .finalize_into(&mut map, base, offsets.offsets[i], &offsets)?;
         }
+
+        Ok((map, self.allocator.stack_size()))
+    }
+
+    #[cfg(feature = "std")]
+    pub fn finalize(self) -> Result<Program, PatchError> {
+        let (map, stack_slots) = self.finalize_into(&mut |len| {
+            let map = memmap2::MmapMut::map_anon(len)?;
+            let base = map.as_ptr() as usize;
+            Ok((map, base))
+        })?;
         let map = map.make_exec()?;
 
         Ok(Program {
             mmap: map,
-            stack_slots: self.allocator.stack_size(),
+            stack_slots,
         })
+    }
+
+    pub fn finalize_into_vec(self, base: Option<usize>) -> Result<(Vec<u8>, u16), PatchError> {
+        let (map, stack_slots) = self.finalize_into(&mut |len| {
+            let v = vec![0u8; len];
+            let base = base.unwrap_or(v.as_ptr() as usize);
+            Ok((v, base))
+        })?;
+
+        Ok((map, stack_slots))
+    }
+
+    pub fn finalize_typed<Sig: EntrypointSignature>(self) -> Result<TypedProgram<Sig>, PatchError> {
+        self.finalize().map(Program::into_typed)
     }
 }
 

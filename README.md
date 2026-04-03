@@ -3,7 +3,7 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
 
 `patchouly` is an experimental copy-and-patch [JIT] framework
-for building base line JITs in Rust, made available with Rust's
+for building base line JITs in Rust, made available by Rust's
 [`explicit_tail_calls`] and [`rust_preserve_none_cc`].
 
 [JIT]: https://en.wikipedia.org/wiki/Just-in-time_compilation
@@ -134,7 +134,7 @@ using the copy-and-patch technique (taken from our [`examples/bf`](./examples) c
     > There are different kinds of relocations, like constants, branches,
     > or external function calls. Inter-block branches can only be patched
     > after all blocks are finalized, but many others can be done during
-    > your "copying" stage, like constants or externally-supplied functions.
+    > your "copying" stage, like constants or next-block offsets.
 
 5.  And finally, make the memmap executable, and voila!
 
@@ -152,7 +152,7 @@ using the copy-and-patch technique (taken from our [`examples/bf`](./examples) c
 
 ## Results
 
-I run the same benchmarks as Rodrigodd's [bf-compiler] repo,
+I ran the same benchmarks as Rodrigodd's [bf-compiler] repo,
 and here are the results (on an AMD 5600G machine):
 
 |   | optimized-jit | optimized-cranelift-jit | patchouly |

@@ -1,4 +1,5 @@
-use memmap2::MmapMut;
+use alloc::{vec, vec::Vec};
+
 use patchouly_core::{
     Stencil, StencilFamily, StencilLibrary,
     relocation::{DelayedRelocation, DelayedTarget, JumpTarget, PatchInfo},
@@ -6,7 +7,9 @@ use patchouly_core::{
 };
 use smallvec::SmallVec;
 
-use crate::{PatchError, Program};
+use crate::PatchError;
+#[cfg(feature = "std")]
+use crate::Program;
 
 #[derive(Default)]
 pub struct ProgramBlocks {
@@ -301,9 +304,10 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     pub fn finalize(self) -> Result<Program, PatchError> {
         let len = self.measure().ok_or(PatchError::NotEnded)?;
-        let mut map = MmapMut::map_anon(len)?;
+        let mut map = memmap2::MmapMut::map_anon(len)?;
         let base = map.as_ptr() as usize;
         self.finalize_into(&mut map[..], base, 0, &Default::default())?;
         let map = map.make_exec()?;

@@ -78,10 +78,14 @@ memmap2 = "0.9.8"
 ### Tests
 pretty_assertions = "1.4.1"
 
+[features]
+default = ["std"]
+std = ["dep:memmap2"]
+
 [dependencies]
 patchouly-core.workspace = true
 
-memmap2.workspace = true
+memmap2 = { workspace = true, optional = true }
 slab.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true

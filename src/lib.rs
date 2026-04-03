@@ -1,14 +1,18 @@
-mod alloc;
+#![no_std]
+
 pub mod managed;
 pub mod patch;
+mod regs;
 
-use std::{
-    fmt::{Debug, Write},
-    io,
-    ops::Deref,
-};
+extern crate alloc;
 
-use memmap2::Mmap;
+#[cfg(feature = "std")]
+extern crate std;
+
+use core::fmt::{Debug, Write};
+use core::mem::transmute;
+use core::ops::Deref;
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -33,12 +37,16 @@ pub enum PatchError {
     VariableOutOfScope,
     #[error("unable to allocate slot for variable")]
     OutOfVariables,
+    #[cfg(feature = "std")]
     #[error("unable to mmap")]
-    MmapError(#[from] io::Error),
+    MmapError(#[from] std::io::Error),
 }
 
 pub struct Program {
-    mmap: Mmap,
+    #[cfg(feature = "std")]
+    mmap: memmap2::Mmap,
+    #[cfg(not(feature = "std"))]
+    mmap: alloc::vec::Vec<u8>,
     pub stack_slots: u16,
 }
 
@@ -65,11 +73,11 @@ impl Program {
 }
 
 impl Debug for Program {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         struct ByteLiteral<'a>(&'a [u8]);
         let s = ByteLiteral(self.mmap.deref());
         impl Debug for ByteLiteral<'_> {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 f.write_char('b')?;
                 f.write_char('"')?;
                 for b in self.0 {
