@@ -1,6 +1,6 @@
 #![feature(rust_preserve_none_cc)]
 
-include!(concat!(env!("OUT_DIR"), "/bf_stencils.rs"));
+patchouly::include_stencils!();
 
 use std::{
     env::args,
@@ -10,7 +10,8 @@ use std::{
 
 use example_commons::{InputFn, OutputFn};
 use patchouly::{
-    PatchError, Program, managed::{JumpScope, PatchFunctionBuilder}
+    PatchError, Program,
+    managed::{JumpScope, PatchFunctionBuilder},
 };
 
 fn main() -> Result<(), io::Error> {
@@ -189,9 +190,7 @@ fn compile(code: &str, debug: bool) -> Result<(Program, BFFunction), PatchError>
 
     let program = builder.finalize()?;
     assert_eq!(program.stack_slots, 0);
-    let run = unsafe {
-        std::mem::transmute::<*const u8, BFFunction>(program.as_ptr())
-    };
+    let run = unsafe { std::mem::transmute::<*const u8, BFFunction>(program.as_ptr()) };
 
     if debug {
         eprintln!("{:?}", program);

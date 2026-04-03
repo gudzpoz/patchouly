@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 #![no_std]
 
 pub mod managed;
@@ -8,6 +10,17 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 extern crate std;
+
+/// Includes generated stencil bindings emitted by `patchouly-build`.
+///
+/// Pair this with `patchouly_build::StencilSetup::extract_and_emit()` in
+/// `build.rs`, which exports the `PATCHOULY_STENCILS_RS` env var.
+#[macro_export]
+macro_rules! include_stencils {
+    () => {
+        include!(env!("PATCHOULY_STENCILS_RS"));
+    };
+}
 
 use core::fmt::{Debug, Write};
 use core::mem::transmute;

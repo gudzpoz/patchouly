@@ -1,6 +1,6 @@
 #![feature(rust_preserve_none_cc)]
 
-include!(concat!(env!("OUT_DIR"), "/calc_stencils.rs"));
+patchouly::include_stencils!();
 
 fn main() {}
 

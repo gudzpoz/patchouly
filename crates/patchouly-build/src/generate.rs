@@ -1,8 +1,8 @@
 use std::{error::Error, fs::File, io::Write, path::Path};
 
-use crate::extract::Extraction;
+use crate::{ExtractOutput, extract::Extraction};
 
-pub fn generate(extraction: Extraction, dest: &Path) -> Result<(), Box<dyn Error>> {
+pub fn generate(extraction: Extraction, dest: &Path) -> Result<ExtractOutput, Box<dyn Error>> {
     let out_bin = dest.join(format!(
         "{}_stencils.bin",
         extraction.lib_name.to_lowercase()
@@ -16,11 +16,11 @@ pub fn generate(extraction: Extraction, dest: &Path) -> Result<(), Box<dyn Error
         out_bin.write_all(&extraction.all_code)?;
     }
 
+    let out_rs = dest.join(format!(
+        "{}_stencils.rs",
+        extraction.lib_name.to_lowercase()
+    ));
     {
-        let out_rs = dest.join(format!(
-            "{}_stencils.rs",
-            extraction.lib_name.to_lowercase()
-        ));
         let mut out_rs = File::options()
             .create(true)
             .truncate(true)
@@ -128,7 +128,10 @@ pub const {}_{}: StencilFamily<{}, {}, {}, {}, {}> = StencilFamily {{
         out_rs.write_all(b"} // mod stencils\n")?;
     }
 
-    Ok(())
+    Ok(ExtractOutput {
+        stencil_name: extraction.lib_name,
+        stencils_rs: out_rs,
+    })
 }
 
 fn escape_string(s: &str) -> String {
