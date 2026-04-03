@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
-
 #![no_std]
+#![feature(rust_preserve_none_cc)]
 
 pub mod managed;
 pub mod patch;
@@ -64,6 +64,15 @@ pub struct Program {
 }
 
 impl Program {
+    /// Converts this executable mapping into a typed program entrypoint.
+    pub fn into_typed<Sig: EntrypointSignature>(self) -> TypedProgram<Sig> {
+        let entry = unsafe { Sig::from_ptr(self.mmap.as_ptr()) };
+        TypedProgram {
+            program: self,
+            entry,
+        }
+    }
+
     pub fn as_slice(&self) -> &[u8] {
         self.mmap.deref()
     }
@@ -84,6 +93,106 @@ impl Program {
         self.mmap.as_ptr()
     }
 }
+
+/// Typed executable entrypoint
+///
+/// ## Signature requirements
+///
+/// `Sig` are currently generated from:
+/// - `extern "rust-preserve-none" fn(&mut ()) -> usize` (aliased to [`RawFn0`])
+/// - up to:
+/// - `extern "rust-preserve-none" fn(&mut (), usize, usize, usize, usize, usize, usize) -> usize`
+///   (aliased to [`RawFn6`])
+///
+/// Note that it is still possible to specify any signature you want
+/// (like multiple return values) with unsafe casting.
+///
+/// ```compile_fail
+/// use patchouly::EntrypointSignature;
+///
+/// fn assert_supported<Sig: EntrypointSignature>() {}
+///
+/// // `extern "C"` signatures are rejected at compile time.
+/// assert_supported::<extern "C" fn(&mut (), usize) -> usize>();
+/// ```
+///
+/// ```no_run
+/// #![feature(rust_preserve_none_cc)]
+/// # use patchouly::{RawFn1, patch::PatchBlock};
+/// # fn build_block() -> PatchBlock<10> { todo!() }
+/// # fn demo() -> Result<(), patchouly::PatchError> {
+/// let block = build_block();
+///
+/// let program = block
+///     .finalize_typed::<RawFn1<()>>()?;
+/// let result = unsafe {program.entry()}(&mut (), 1);
+/// let _ = result;
+/// # Ok(())
+/// # }
+/// ```
+pub struct TypedProgram<Sig: EntrypointSignature> {
+    program: Program,
+    entry: Sig,
+}
+
+impl<Sig: EntrypointSignature> TypedProgram<Sig> {
+    /// Returns the entrypoint function
+    ///
+    /// # Safety
+    ///
+    /// Well, you compiled it, so you know what you're doing.
+    /// It's unsafe.
+    pub unsafe fn entry(&self) -> Sig {
+        self.entry
+    }
+
+    pub fn program(&self) -> &Program {
+        &self.program
+    }
+
+    pub fn into_program(self) -> Program {
+        self.program
+    }
+}
+
+impl<Sig: EntrypointSignature> Deref for TypedProgram<Sig> {
+    type Target = Program;
+
+    fn deref(&self) -> &Self::Target {
+        &self.program
+    }
+}
+
+pub trait EntrypointSignature: sealed::Sealed + Copy + 'static {
+    #[doc(hidden)]
+    unsafe fn from_ptr(ptr: *const u8) -> Self;
+}
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+macro_rules! impl_entrypoint_signature {
+    ($name:ident $(,$arg:ty)*) => {
+        pub type $name<T> = extern "rust-preserve-none" fn(&mut T, $($arg),*) -> usize;
+
+        impl<T: 'static> sealed::Sealed for $name<T> {}
+
+        impl<T: 'static> EntrypointSignature for $name<T> {
+            unsafe fn from_ptr(ptr: *const u8) -> Self {
+                unsafe { transmute::<*const u8, Self>(ptr) }
+            }
+        }
+    };
+}
+
+impl_entrypoint_signature!(RawFn0);
+impl_entrypoint_signature!(RawFn1, usize);
+impl_entrypoint_signature!(RawFn2, usize, usize);
+impl_entrypoint_signature!(RawFn3, usize, usize, usize);
+impl_entrypoint_signature!(RawFn4, usize, usize, usize, usize);
+impl_entrypoint_signature!(RawFn5, usize, usize, usize, usize, usize);
+impl_entrypoint_signature!(RawFn6, usize, usize, usize, usize, usize, usize);
 
 impl Debug for Program {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

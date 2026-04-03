@@ -7,7 +7,7 @@ fn main() {}
 #[cfg(test)]
 mod tests {
     use example_commons::{Stack, StackAllocFn};
-    use patchouly::patch::PatchBlock;
+    use patchouly::{RawFn1, RawFn2, patch::PatchBlock};
     use patchouly_core::{
         Stencil, StencilStack,
         stencils::{Location, index_to_io_lossy, io_to_index},
@@ -149,20 +149,13 @@ mod tests {
         block
             .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
             .unwrap();
-        let program = block.finalize().unwrap();
-        eprintln!("{:?}", program);
-        unsafe {
-            let add42 = std::mem::transmute::<
-                *const u8,
-                extern "rust-preserve-none" fn(&mut (), usize) -> usize,
-            >(program.as_ptr());
-
-            let mut i = 1usize;
-            for _ in 0..10000 {
-                i = i.wrapping_mul(31);
-                let result = add42(&mut (), i);
-                assert_eq!(i.wrapping_add(42), result);
-            }
+        let add42 = block.finalize_typed::<RawFn1<()>>().unwrap();
+        eprintln!("{:?}", add42.program());
+        let mut i = 1usize;
+        for _ in 0..10000 {
+            i = i.wrapping_mul(31);
+            let result = unsafe { add42.entry() }(&mut (), i);
+            assert_eq!(i.wrapping_add(42), result);
         }
     }
 
@@ -188,20 +181,13 @@ mod tests {
         block
             .ret(&stencils::CALC_RET, &[Location::Register(4)], &[])
             .unwrap();
-        let program = block.finalize().unwrap();
-        eprintln!("{:?}", program);
-        unsafe {
-            let add2_42 = std::mem::transmute::<
-                *const u8,
-                extern "rust-preserve-none" fn(&mut (), usize, usize) -> usize,
-            >(program.as_ptr());
-
-            let mut i = 1usize;
-            for _ in 0..10000 {
-                i = i.wrapping_mul(31);
-                let result = add2_42(&mut (), i, i);
-                assert_eq!(i.wrapping_mul(2).wrapping_add(42), result);
-            }
+        let add2_42 = block.finalize_typed::<RawFn2<()>>().unwrap();
+        eprintln!("{:?}", add2_42.program());
+        let mut i = 1usize;
+        for _ in 0..10000 {
+            i = i.wrapping_mul(31);
+            let result = unsafe { add2_42.entry() }(&mut (), i, i);
+            assert_eq!(i.wrapping_mul(2).wrapping_add(42), result);
         }
     }
 
@@ -219,20 +205,13 @@ mod tests {
         block
             .ret(&stencils::CALC_RET, &[Location::Register(2)], &[])
             .unwrap();
-        let program = block.finalize().unwrap();
-        eprintln!("{:?}", program);
-        unsafe {
-            let add_same = std::mem::transmute::<
-                *const u8,
-                extern "rust-preserve-none" fn(&mut (), usize) -> usize,
-            >(program.as_ptr());
-
-            let mut i = 1usize;
-            for _ in 0..10000 {
-                i = i.wrapping_mul(31);
-                let result = add_same(&mut (), i);
-                assert_eq!(i.wrapping_mul(2), result);
-            }
+        let add_same = block.finalize_typed::<RawFn1<()>>().unwrap();
+        eprintln!("{:?}", add_same.program());
+        let mut i = 1usize;
+        for _ in 0..10000 {
+            i = i.wrapping_mul(31);
+            let result = unsafe { add_same.entry() }(&mut (), i);
+            assert_eq!(i.wrapping_mul(2), result);
         }
     }
 
@@ -282,36 +261,33 @@ mod tests {
                 .unwrap();
         }
 
-        let program = block.finalize().unwrap();
-        eprintln!("{:?}", program);
-        unsafe {
-            let mut stack = Stack(vec![]);
-            let mut results = vec![];
+        let add2 = block.finalize_typed::<RawFn2<Stack>>().unwrap();
+        eprintln!("{:?}", add2.program());
+        let mut stack = Stack(vec![]);
+        let mut results = vec![];
 
-            let add2 = std::mem::transmute::<
-                *const u8,
-                extern "rust-preserve-none" fn(&mut Stack, usize, usize) -> usize,
-            >(program.as_ptr());
-
-            let mut i = 1usize;
-            for _ in 0..10000 {
-                i = i.wrapping_mul(31);
-                let result = add2(&mut stack, i, i);
-                let expected = i.wrapping_mul(2);
-                results.push(result);
-                assert_eq!(expected, result);
-                if pop {
-                    assert_eq!(0, stack.0.len());
-                } else {
-                    assert_eq!(expected, stack.get(0));
-                }
+        let mut i = 1usize;
+        for _ in 0..10000 {
+            i = i.wrapping_mul(31);
+            let result = unsafe { add2.entry() }(&mut stack, i, i);
+            let expected = i.wrapping_mul(2);
+            results.push(result);
+            assert_eq!(expected, result);
+            if pop {
+                assert_eq!(0, stack.0.len());
+            } else {
+                assert_eq!(expected, stack.get(0));
             }
-            if !pop {
-                assert_eq!(
-                    results,
-                    stack.0.iter().map(|v| v.assume_init()).collect::<Vec<_>>()
-                );
-            }
+        }
+        if !pop {
+            assert_eq!(
+                results,
+                stack
+                    .0
+                    .iter()
+                    .map(|v| unsafe { v.assume_init() })
+                    .collect::<Vec<_>>()
+            );
         }
     }
 
@@ -331,15 +307,12 @@ mod tests {
             .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
             .unwrap();
         let len = block.measure();
-        let program = block.finalize().unwrap();
-        assert_eq!(len, Some(program.len()));
-        unsafe {
-            let add_large = std::mem::transmute::<
-                *const u8,
-                extern "rust-preserve-none" fn(&mut (), usize) -> usize,
-            >(program.as_ptr());
-            assert_eq!((1usize << 40) + 7, add_large(&mut (), 7));
-        }
+        let add_large = block.finalize_typed::<RawFn1<()>>().unwrap();
+        assert_eq!(len, Some(add_large.program().len()));
+        assert_eq!(
+            (1usize << 40) + 7,
+            unsafe { add_large.entry() }(&mut (), 7)
+        );
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -366,11 +339,11 @@ mod tests {
             .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
             .unwrap();
         let len = block.measure();
-        let program = block.finalize().unwrap();
-        assert_eq!(len, Some(program.len()));
+        let add_large = block.finalize_typed::<RawFn1<()>>().unwrap();
+        assert_eq!(len, Some(add_large.program().len()));
 
         // constant pool at the end
-        let slice = program.as_slice();
+        let slice = add_large.program().as_slice();
         assert_eq!(0, slice.len() % 8);
         assert_eq!(
             1u64 << 40,
@@ -381,12 +354,9 @@ mod tests {
             u64::from_le_bytes(slice[slice.len() - 8..slice.len()].try_into().unwrap())
         );
 
-        unsafe {
-            let add_large = std::mem::transmute::<
-                *const u8,
-                extern "rust-preserve-none" fn(&mut (), usize) -> usize,
-            >(program.as_ptr());
-            assert_eq!((1usize << 40) + (1usize << 41) + 7, add_large(&mut (), 7));
-        }
+        assert_eq!(
+            (1usize << 40) + (1usize << 41) + 7,
+            unsafe { add_large.entry() }(&mut (), 7)
+        );
     }
 }

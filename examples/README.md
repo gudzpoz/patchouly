@@ -43,10 +43,12 @@ build your own if you need more control.
 For example, the `bf` crate has the following in its `build.rs`:
 
 ```rust
-use patchouly_build::extract;
+use patchouly_build::StencilSetup;
 
 fn main() {
-    extract("bf-stencils").unwrap();
+    StencilSetup::new("bf-stencils")
+        .extract_and_emit()
+        .expect("failed to extract stencils");
 }
 ```
 
@@ -54,6 +56,9 @@ And it uses `include!` to include the generated typed stencils:
 
 ```rust
 #![feature(rust_preserve_none_cc)]
+// either:
+patchouly::include_stencils!();
+// or more verbose:
 include!(concat!(env!("OUT_DIR"), "/bf_stencils.rs"));
 ```
 

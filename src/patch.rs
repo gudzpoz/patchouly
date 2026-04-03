@@ -9,7 +9,7 @@ use smallvec::SmallVec;
 
 use crate::PatchError;
 #[cfg(feature = "std")]
-use crate::Program;
+use crate::{EntrypointSignature, Program, TypedProgram};
 
 #[derive(Default)]
 pub struct ProgramBlocks {
@@ -316,5 +316,10 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
             mmap: map,
             stack_slots: 0,
         })
+    }
+
+    #[cfg(feature = "std")]
+    pub fn finalize_typed<Sig: EntrypointSignature>(self) -> Result<TypedProgram<Sig>, PatchError> {
+        self.finalize().map(Program::into_typed)
     }
 }

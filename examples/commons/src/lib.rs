@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 
 use patchouly_core::StencilStack;
 
+#[derive(Default)]
 pub struct Stack(pub Vec<MaybeUninit<usize>>);
 impl StencilStack for Stack {
     #[inline]
