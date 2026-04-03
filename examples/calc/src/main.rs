@@ -138,17 +138,9 @@ mod tests {
     #[test]
     fn test_basic_add42_jit() {
         let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
-        block
-            .add(
-                &stencils::CALC_ADD_CONST,
-                &[Location::Register(0)],
-                &[Location::Register(0)],
-                &[42],
-            )
-            .unwrap();
-        block
-            .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
-            .unwrap();
+        let v = Location::Register(0);
+        block.emit_vi(&stencils::CALC_ADD_CONST, v, 42, v).unwrap();
+        block.ret_v(&stencils::CALC_RET, v).unwrap();
         let add42 = block.finalize_typed::<RawFn1<()>>().unwrap();
         eprintln!("{:?}", add42.program());
         let mut i = 1usize;
@@ -163,19 +155,19 @@ mod tests {
     fn test_basic_add_two_jit() {
         let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
         block
-            .add(
+            .emit_vv(
                 &stencils::CALC_ADD,
-                &[Location::Register(0), Location::Register(1)],
-                &[Location::Register(8)],
-                &[],
+                Location::Register(0),
+                Location::Register(1),
+                Location::Register(8),
             )
             .unwrap();
         block
-            .add(
+            .emit_vi(
                 &stencils::CALC_ADD_CONST,
-                &[Location::Register(8)],
-                &[Location::Register(4)],
-                &[42],
+                Location::Register(8),
+                42,
+                Location::Register(4),
             )
             .unwrap();
         block
@@ -195,7 +187,7 @@ mod tests {
     fn test_basic_add_same_input_register_jit() {
         let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
         block
-            .add(
+            .emit(
                 &stencils::CALC_ADD,
                 &[Location::Register(0), Location::Register(0)],
                 &[Location::Register(2)],
@@ -224,41 +216,26 @@ mod tests {
     fn test_basic_on_stack_push(pop: bool) {
         let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
         block
-            .add(
+            .emit(
                 &stencils::CALC_STACK_ALLOC,
                 &[],
                 &[],
                 &[StackAllocFn(Stack::allocate).into(), 1],
             )
             .unwrap();
-        block
-            .add(
-                &stencils::CALC_ADD,
-                &[Location::Register(0), Location::Register(1)],
-                &[Location::Stack(0)],
-                &[],
-            )
-            .unwrap();
+        let v1 = Location::Register(0);
+        let v2 = Location::Register(1);
+        let s1 = Location::Stack(0);
+        block.emit_vv(&stencils::CALC_ADD, v1, v2, s1).unwrap();
 
         if pop {
+            block.emit_v(&stencils::CALC___MOVE, s1, v1).unwrap();
             block
-                .add(
-                    &stencils::CALC___MOVE,
-                    &[Location::Stack(0)],
-                    &[Location::Register(0)],
-                    &[],
-                )
+                .emit(&stencils::CALC_STACK_POP, &[], &[], &[1])
                 .unwrap();
-            block
-                .add(&stencils::CALC_STACK_POP, &[], &[], &[1])
-                .unwrap();
-            block
-                .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
-                .unwrap();
+            block.ret_v(&stencils::CALC_RET, v1).unwrap();
         } else {
-            block
-                .ret(&stencils::CALC_RET, &[Location::Stack(0)], &[])
-                .unwrap();
+            block.ret_v(&stencils::CALC_RET, s1).unwrap();
         }
 
         let add2 = block.finalize_typed::<RawFn2<Stack>>().unwrap();
@@ -295,45 +272,27 @@ mod tests {
     #[test]
     fn test_large_hole_value() {
         let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
+        let v = Location::Register(0);
         block
-            .add(
-                &stencils::CALC_ADD_CONST,
-                &[Location::Register(0)],
-                &[Location::Register(0)],
-                &[1usize << 40],
-            )
+            .emit_vi(&stencils::CALC_ADD_CONST, v, 1 << 40, v)
             .unwrap();
-        block
-            .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])
-            .unwrap();
+        block.ret_v(&stencils::CALC_RET, v).unwrap();
         let len = block.measure();
         let add_large = block.finalize_typed::<RawFn1<()>>().unwrap();
         assert_eq!(len, Some(add_large.program().len()));
-        assert_eq!(
-            (1usize << 40) + 7,
-            unsafe { add_large.entry() }(&mut (), 7)
-        );
+        assert_eq!((1usize << 40) + 7, unsafe { add_large.entry() }(&mut (), 7));
     }
 
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_multiple_large_hole_values() {
         let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
+        let v = Location::Register(0);
         block
-            .add(
-                &stencils::CALC_ADD_CONST,
-                &[Location::Register(0)],
-                &[Location::Register(0)],
-                &[1usize << 40],
-            )
+            .emit_vi(&stencils::CALC_ADD_CONST, v, 1 << 40, v)
             .unwrap();
         block
-            .add(
-                &stencils::CALC_ADD_CONST,
-                &[Location::Register(0)],
-                &[Location::Register(0)],
-                &[1usize << 41],
-            )
+            .emit_vi(&stencils::CALC_ADD_CONST, v, 1usize << 41, v)
             .unwrap();
         block
             .ret(&stencils::CALC_RET, &[Location::Register(0)], &[])

@@ -66,7 +66,8 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         }
     }
 
-    pub fn add<const IN: usize, const OUT: usize, const HOLES: usize>(
+    /// Emit one plain, control-flow-free stencil.
+    pub fn emit<const IN: usize, const OUT: usize, const HOLES: usize>(
         &mut self,
         stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, 1>,
         inputs: &[Location; IN],
@@ -76,9 +77,42 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         if self.ended {
             return Err(PatchError::AlreadyEnded);
         }
-        self.emit(stencil, inputs, outputs, holes, &[JumpTarget::Next])
+        self.emit_one(stencil, inputs, outputs, holes, &[JumpTarget::Next])
     }
 
+    /// Emits a stencil using two value slots as inputs
+    pub fn emit_vv(
+        &mut self,
+        stencil: &StencilFamily<2, 1, MAX_REGS, 0, 1>,
+        src1: Location,
+        src2: Location,
+        dst: Location,
+    ) -> Result<(), PatchError> {
+        self.emit(stencil, &[src1, src2], &[dst], &[])
+    }
+
+    /// Emits a stencil using a value slot as inputs
+    pub fn emit_v(
+        &mut self,
+        stencil: &StencilFamily<1, 1, MAX_REGS, 0, 1>,
+        src: Location,
+        dst: Location,
+    ) -> Result<(), PatchError> {
+        self.emit(stencil, &[src], &[dst], &[])
+    }
+
+    /// Emits a stencil with a value slot and an immediate as inputs
+    pub fn emit_vi(
+        &mut self,
+        stencil: &StencilFamily<1, 1, MAX_REGS, 1, 1>,
+        src: Location,
+        imm: usize,
+        dst: Location,
+    ) -> Result<(), PatchError> {
+        self.emit(stencil, &[src], &[dst], &[imm])
+    }
+
+    /// Emits a return stencil.
     pub fn ret<const IN: usize, const HOLES: usize>(
         &mut self,
         stencil: &StencilFamily<IN, 0, MAX_REGS, HOLES, 0>,
@@ -86,9 +120,19 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         holes: &[usize; HOLES],
     ) -> Result<(), PatchError> {
         self.ended = true;
-        self.emit(stencil, inputs, &[], holes, &[])
+        self.emit_one(stencil, inputs, &[], holes, &[])
     }
 
+    /// Emits a single-slot return stencil.
+    pub fn ret_v(
+        &mut self,
+        stencil: &StencilFamily<1, 0, MAX_REGS, 0, 0>,
+        src: Location,
+    ) -> Result<(), PatchError> {
+        self.ret(stencil, &[src], &[])
+    }
+
+    /// Emits a final branching stencil.
     pub fn end_branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
         &mut self,
         stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
@@ -101,6 +145,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         self.branch(stencil, inputs, outputs, holes, jumps)
     }
 
+    /// Emits a branching stencil, but does not end the block.
     pub fn branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
         &mut self,
         stencil: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
@@ -109,7 +154,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         holes: &[usize; HOLES],
         jumps: &[JumpTarget; JUMPS],
     ) -> Result<(), PatchError> {
-        self.emit(stencil, inputs, outputs, holes, jumps)
+        self.emit_one(stencil, inputs, outputs, holes, jumps)
     }
 
     /// Emits a stencil
@@ -144,7 +189,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
     ///
     /// Note that this means that the last `emit` must not be a normal stencil that
     /// tries to jump to the next stencil.
-    fn emit<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
+    fn emit_one<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
         &mut self,
         stencils: &StencilFamily<IN, OUT, MAX_REGS, HOLES, JUMPS>,
         inputs: &[Location; IN],

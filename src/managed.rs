@@ -194,7 +194,7 @@ impl<'a, const MAX_REGS: usize> PatchBlockBuilder<'a, MAX_REGS> {
             &self.builder.current_scopes,
             outputs,
         )?;
-        block.add(stencil, inputs, outputs, holes)
+        block.emit(stencil, inputs, outputs, holes)
     }
 
     pub fn end_branch<const IN: usize, const OUT: usize, const HOLES: usize, const JUMPS: usize>(
