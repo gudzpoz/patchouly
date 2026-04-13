@@ -40,12 +40,28 @@ use patchouly_core::relocation::Relocation;
             .as_bytes(),
         )?;
 
+        if !extraction.rt_symbols.is_empty() {
+            out_rs.write_fmt(format_args!(
+                r#"
+unsafe extern "Rust" {{
+{}}}"#,
+                extraction
+                    .rt_symbols
+                    .iter()
+                    .map(|sym| format!("    fn {}();\n", sym))
+                    .collect::<String>()
+            ))?;
+        }
+
         out_rs.write_fmt(format_args!(
             r#"
 pub const {}_STENCIL_LIBRARY: StencilLibrary<{}> = StencilLibrary {{
     code: include_bytes!({}),
     empty: b"{}",
     moves: &{}___MOVE,
+    long_jump: &{}___LONG_JUMP,
+    rt_symbols: &[{}
+    ]
 }};"#,
             lib_upper,
             extraction.max_regs,
@@ -62,6 +78,12 @@ pub const {}_STENCIL_LIBRARY: StencilLibrary<{}> = StencilLibrary {{
                 })
                 .unwrap_or("".to_string()),
             lib_upper,
+            lib_upper,
+            extraction
+                .rt_symbols
+                .iter()
+                .map(|sym| format!("\n        {},", sym))
+                .collect::<String>()
         ))?;
 
         // We directly use from_bits/into_bits here.

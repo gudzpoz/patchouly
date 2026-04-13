@@ -79,3 +79,15 @@ impl From<OutputFn> for usize {
         val.0 as usize
     }
 }
+
+pub struct BoxedVec(pub Box<Vec<usize>>);
+impl From<usize> for BoxedVec {
+    fn from(v: usize) -> BoxedVec {
+        BoxedVec(unsafe { Box::from_raw(v as *mut _) })
+    }
+}
+impl From<BoxedVec> for usize {
+    fn from(val: BoxedVec) -> Self {
+        Box::into_raw(val.0) as usize
+    }
+}

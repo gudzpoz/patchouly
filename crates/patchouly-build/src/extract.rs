@@ -19,6 +19,7 @@ use patchouly_core::{
     },
     stencils::{io_to_index, stencils_len},
 };
+use rustc_demangle::demangle;
 use smallvec::SmallVec;
 
 use crate::structs::StencilArgs;
@@ -172,8 +173,9 @@ pub struct Extraction {
     pub all_code: Vec<u8>,
     pub max_regs: usize,
     pub families: BTreeMap<String, StencilFamilyBuild>,
+    pub rt_symbols: Vec<String>,
 }
-pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
+pub fn extract(rlib_path: &Path, allowed_symbols: &[String]) -> Result<Extraction, Box<dyn Error>> {
     let rlib_file = FileContents::open(rlib_path)?;
     let ar_data = rlib_file.as_slice();
     let ar = ArchiveFile::parse(ar_data)?;
@@ -182,6 +184,7 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
     let mut max_regs = None;
     let mut all_code = Vec::with_capacity(ar_data.len() / 2);
     let mut stencils = HashMap::new();
+    let mut rt_symbols = RuntimeSymbols::new(allowed_symbols);
 
     for entry in ar.members() {
         let entry = entry?;
@@ -238,7 +241,11 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
                 let Some(reloc) = sym.name().ok() else {
                     continue 'next;
                 };
-                let Some(patch) = get_patch_type(name, reloc) else {
+                let patch = if let Some(patch) = get_patch_type(name, reloc) {
+                    patch
+                } else if let Some(id) = rt_symbols.add_symbol(reloc) {
+                    PatchType::Runtime(id)
+                } else {
                     continue 'next;
                 };
                 let reloc = new_relocation(offset, &info, patch)?;
@@ -287,6 +294,7 @@ pub fn extract(rlib_path: &Path) -> Result<Extraction, Box<dyn Error>> {
             .into_iter()
             .map(|(name, builder)| (name.to_string(), builder.finalize()))
             .collect(),
+        rt_symbols: rt_symbols.into(),
     })
 }
 
@@ -301,6 +309,46 @@ fn get_data<'file>(
         .ok()
         .flatten()
         .map(|data| (section, data))
+}
+
+struct RuntimeSymbols<'a> {
+    allow_list: &'a [String],
+    symbols: HashMap<String, u16>,
+}
+impl<'a> RuntimeSymbols<'a> {
+    fn new(allow_list: &'a [String]) -> Self {
+        Self {
+            allow_list,
+            symbols: HashMap::new(),
+        }
+    }
+
+    fn add_symbol(&mut self, name: &str) -> Option<u16> {
+        if !self
+            .allow_list
+            .iter()
+            .any(|s| demangle(name).to_string().starts_with(s))
+        {
+            return None;
+        }
+        let i = self.symbols.len().try_into().ok()?;
+        match self.symbols.entry(name.to_string()) {
+            Entry::Occupied(entry) => Some(*entry.get()),
+            Entry::Vacant(vacant) => {
+                vacant.insert(i);
+                Some(i)
+            }
+        }
+    }
+}
+impl<'a> From<RuntimeSymbols<'a>> for Vec<String> {
+    fn from(value: RuntimeSymbols<'a>) -> Self {
+        let mut v = vec![String::new(); value.symbols.len()];
+        for (name, index) in value.symbols {
+            v[index as usize] = name;
+        }
+        v
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -366,13 +414,16 @@ enum PatchType {
     Stack(u16),
     Target(u16),
     Next,
+    Runtime(u16),
 }
 
 fn get_patch_type(name: &str, reloc: &str) -> Option<PatchType> {
     if reloc == "copy_and_patch_next" {
         return Some(PatchType::Next);
     }
-    assert!(reloc.starts_with(name), "reloc: {reloc}, name: {name}");
+    if !reloc.starts_with(name) {
+        return None;
+    }
     let name = &reloc[name.len()..];
     assert!(name.starts_with("__"));
     let name = &name[2..];
@@ -432,6 +483,7 @@ fn new_relocation(
         PatchType::Hole(i) => (PatchKind::Hole, i),
         PatchType::Stack(i) => (PatchKind::Stack, i),
         PatchType::Target(i) => (PatchKind::Target, i),
+        PatchType::Runtime(i) => (PatchKind::Runtime, i),
         PatchType::Next => (PatchKind::Target, 0),
     };
     reloc.checked_set_patch_kind(kind)?;
@@ -451,6 +503,7 @@ mod tests {
             ("add_const__1__0", "add_const", false, 10),
             ("add_const__9__0__wide", "add_const", true, 190),
             ("__empty____", "__empty", false, 0),
+            ("__long_jump______wide", "__long_jump", true, 1),
             ("__move__1__1", "__move", false, 11),
         ];
         for (input, name, wide, index) in assertions {

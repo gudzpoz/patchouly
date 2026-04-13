@@ -6,7 +6,7 @@ fn main() {}
 
 #[cfg(test)]
 mod tests {
-    use example_commons::{Stack, StackAllocFn};
+    use example_commons::{BoxedVec, Stack, StackAllocFn};
     use patchouly::{RawFn1, RawFn2, patch::PatchBlock};
     use patchouly_core::{
         Stencil, StencilStack,
@@ -265,6 +265,21 @@ mod tests {
                     .map(|v| unsafe { v.assume_init() })
                     .collect::<Vec<_>>()
             );
+        }
+    }
+
+    #[test]
+    fn test_droppable() {
+        let mut block = PatchBlock::new(&stencils::CALC_STENCIL_LIBRARY);
+        let v = Location::Register(0);
+        block.emit_v(&stencils::CALC_VEC_SUM, v, v).unwrap();
+        block.ret_v(&stencils::CALC_RET, v).unwrap();
+        let add42 = block.finalize_typed::<RawFn1<()>>().unwrap();
+        eprintln!("{:?}", add42.program());
+        for _ in 0..10000 {
+            let v = Box::new(vec![1usize; 1000000]);
+            let result = unsafe { add42.entry() }(&mut (), BoxedVec(v).into());
+            assert_eq!(1000000, result);
         }
     }
 

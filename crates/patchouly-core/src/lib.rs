@@ -26,6 +26,8 @@ pub struct StencilLibrary<const MAX_REGS: usize> {
     pub empty: &'static [u8],
     /// Stencils to move values between registers/the stack
     pub moves: &'static StencilFamily<1, 1, MAX_REGS, 0, 1>,
+    /// Extra runtime-provided relocations
+    pub rt_symbols: &'static [unsafe fn()],
 }
 
 pub use stencils::Stencil;

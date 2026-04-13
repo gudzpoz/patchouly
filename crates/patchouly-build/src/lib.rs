@@ -23,6 +23,8 @@ pub struct ExtractOutput {
     pub stencils_rs: PathBuf,
 }
 
+const DEFAULT_SYMBOLS: &[&str] = &["__rustc[", "alloc::", "core::"];
+
 /// Unified stencil setup helper for build scripts.
 ///
 /// It validates the stencil crate identifier, extracts stencils, and
@@ -50,10 +52,21 @@ pub struct ExtractOutput {
 ///     let _ = &stencils::CALC_STENCIL_LIBRARY;
 /// }
 /// ```
+///
+/// ## Internals
+///
+/// Note that the current implementation hardcodes a lot of things:
+/// - The source directory of the stencils crate should be `src/`.
+/// - The internal `.rlib` format used by Rust is assumed to be
+///   located under some certain directories, named `libXXX.rlib`
+///   and is an object file.
+/// - The output directory of `cargo rustc --release` is assumed
+///   to be under `$CARGO_TARGET_DIR/release/`.
 #[derive(Debug, Clone)]
 pub struct StencilSetup<'a> {
     rel_stencils_dir: &'a str,
     include_env: &'a str,
+    rt_symbols: Vec<String>,
 }
 
 impl<'a> StencilSetup<'a> {
@@ -61,6 +74,7 @@ impl<'a> StencilSetup<'a> {
         Self {
             rel_stencils_dir,
             include_env: STENCILS_RS_ENV,
+            rt_symbols: DEFAULT_SYMBOLS.iter().map(|s| s.to_string()).collect(),
         }
     }
 
@@ -72,8 +86,17 @@ impl<'a> StencilSetup<'a> {
         Ok(self)
     }
 
+    /// Adds additional runtime symbols to allow in the generated stencils.
+    ///
+    /// If a certain symbol starts with one of these strings, it will be allowed.
+    /// (Symbol names are demangled before comparison, so one should use module paths.)
+    pub fn with_rt_symbols<I: Iterator<Item = String>>(mut self, symbols: I) -> Self {
+        self.rt_symbols.extend(symbols);
+        self
+    }
+
     pub fn extract_and_emit(self) -> Result<ExtractOutput, Box<dyn Error>> {
-        let output = extract_with_output(self.rel_stencils_dir)?;
+        let output = extract_with_output(self.rel_stencils_dir, &self.rt_symbols)?;
         println!(
             "cargo:rustc-env={}={}",
             self.include_env,
@@ -85,19 +108,8 @@ impl<'a> StencilSetup<'a> {
 
 /// Compiles and extracts stencils from a stencils crate
 ///
-/// ## Usage
-///
-/// Note that the current implementation hardcodes a lot of things:
-/// - The source directory of the stencils crate should be `src/`.
-/// - The internal `.rlib` format used by Rust is assumed to be
-///   located under some certain directories, named `libXXX.rlib`
-///   and is an object file.
-/// - The output directory of `cargo rustc --release` is assumed
-///   to be under `$CARGO_TARGET_DIR/release/`.
-///
-/// If things above are met, this function will probably work by
-/// compiling and extracting stencils into a `$OUT_DIR/{}_stencils.rs`
-/// file, where `{}` is the lowercase of the name specified in your
+/// Output is written to a `$OUT_DIR/{}_stencils.rs` file,
+/// where `{}` is the lowercase of the name specified in your
 /// `setup_stencils!(name = "...");` macro call in the stencils crate.
 /// For example, `setup_stencils!(name = "Calc");` will generate a file
 /// named `calc_stencils.rs`, which you may include with:
@@ -105,12 +117,10 @@ impl<'a> StencilSetup<'a> {
 /// ```ignore
 /// include!(concat!(env!("OUT_DIR"), "/calc_stencils.rs"));
 /// ```
-pub fn extract(rel_stencils_dir: &str) -> Result<(), Box<dyn Error>> {
-    extract_with_output(rel_stencils_dir).map(|_| ())
-}
-
-/// Same as [`extract`], but also returns generated file metadata.
-pub fn extract_with_output(rel_stencils_dir: &str) -> Result<ExtractOutput, Box<dyn Error>> {
+pub fn extract_with_output(
+    rel_stencils_dir: &str,
+    rt_symbols: &[String],
+) -> Result<ExtractOutput, Box<dyn Error>> {
     let out_dir = std::env::var("OUT_DIR")?;
     let out_path = Path::new(&out_dir).canonicalize()?;
     // We need a different target dir to prevent deadlock
@@ -160,7 +170,7 @@ pub fn extract_with_output(rel_stencils_dir: &str) -> Result<ExtractOutput, Box<
     let rlib = target_dir
         .join("release")
         .join(dir_to_libname(&stencils_dir)?);
-    let extraction = extract::extract(&rlib)?;
+    let extraction = extract::extract(&rlib, rt_symbols)?;
     generate::generate(extraction, &out_path)
 }
 

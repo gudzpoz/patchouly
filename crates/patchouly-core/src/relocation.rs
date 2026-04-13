@@ -68,6 +68,7 @@ pub enum PatchKind {
     Hole = 0,
     Stack,
     Target,
+    Runtime,
     Unknown,
 }
 impl PatchKind {
@@ -87,6 +88,7 @@ pub enum PatchInfo {
     Hole(u16),
     Stack(u16),
     Target(u16),
+    Runtime(u16),
 }
 
 impl Relocation {
@@ -99,6 +101,7 @@ impl Relocation {
             PatchKind::Hole => PatchInfo::Hole(self.patch_id()),
             PatchKind::Stack => PatchInfo::Stack(self.patch_id()),
             PatchKind::Target => PatchInfo::Target(self.patch_id()),
+            PatchKind::Runtime => PatchInfo::Runtime(self.patch_id()),
             _ => return None,
         })
     }
@@ -180,6 +183,7 @@ impl DelayedRelocation {
         stack_vars: &[usize],
         holes: &[usize],
         jumps: &[JumpTarget],
+        rt_symbols: &[unsafe fn()],
     ) -> Option<Self> {
         // TODO: unwrap safety?
         let mut value = match relocation.patch_info().unwrap() {
@@ -194,6 +198,9 @@ impl DelayedRelocation {
                         JumpTarget::Target(target) => DelayedTarget::Block(target),
                     },
                 });
+            }
+            PatchInfo::Runtime(i) => {
+                rt_symbols[i as usize] as usize
             }
         };
 
