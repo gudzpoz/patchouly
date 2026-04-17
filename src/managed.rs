@@ -309,13 +309,21 @@ mod tests {
 
     use super::*;
 
+    static MOV: StencilFamily<1, 1, 1, 0, 1> = StencilFamily {
+        relocation_data: &[Relocation::new()],
+        stencils: &[Stencil {
+            code_index: 0,
+            code_len: 1,
+            relocation_index: 0,
+        }],
+    };
+
     static LIBRARY: StencilLibrary<1> = StencilLibrary {
         code: b"\0",
         empty: b"",
-        moves: &StencilFamily {
-            relocation_data: &[],
-            stencils: &[],
-        },
+        moves: &MOV,
+        long_jump: &LONG_JUMP,
+        rt_symbols: &[],
     };
 
     static JMP: StencilFamily<0, 0, 1, 0, 1> = StencilFamily {
@@ -334,6 +342,22 @@ mod tests {
             code_len: 1,
             relocation_index: 0,
         }],
+    };
+
+    static LONG_JUMP: StencilFamily<0, 0, 1, 1, 0> = StencilFamily {
+        relocation_data: &[Relocation::new()],
+        stencils: &[
+            Stencil {
+                code_index: 0,
+                code_len: 0,
+                relocation_index: 0,
+            },
+            Stencil {
+                code_index: 0,
+                code_len: 1,
+                relocation_index: 0,
+            },
+        ],
     };
 
     #[test]

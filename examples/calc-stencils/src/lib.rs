@@ -1,6 +1,7 @@
 #![allow(incomplete_features)]
 #![feature(explicit_tail_calls)]
 #![feature(rust_preserve_none_cc)]
+#![allow(clippy::too_many_arguments)]
 
 use example_commons::{BoxedVec, Stack, StackAllocFn};
 use patchouly_core::StencilStack;

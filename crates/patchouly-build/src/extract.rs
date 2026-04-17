@@ -60,6 +60,7 @@ pub struct StencilFamilyBuild {
     pub JUMPS: usize,
     pub relocation_data: Vec<StencilRelocation>,
     pub stencils: Vec<Stencil<0, 0, 0, 0>>,
+    pub doc: String,
 }
 struct StencilFamilyBuilder {
     family: StencilFamilyBuild,
@@ -75,6 +76,7 @@ impl StencilFamilyBuilder {
             JUMPS: metadata.jumps as usize,
             relocation_data: Default::default(),
             stencils: vec![],
+            doc: metadata.signature,
         };
         let mut new_len = stencils_len(family.IN, family.OUT, family.MAX_REGS);
         if metadata.holes > 0 {
@@ -351,26 +353,25 @@ impl<'a> From<RuntimeSymbols<'a>> for Vec<String> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Metadata {
     inputs: u16,
     outputs: u16,
     max_regs: u16,
     holes: u16,
     jumps: u16,
+    signature: String,
 }
 impl Metadata {
     /// See `stencil.rs` in `patchouly-macros`
     fn unpack(data: &[u8]) -> Option<Self> {
-        if data.len() != 10 {
-            return None;
-        }
         Some(Metadata {
             inputs: u16::from_le_bytes(data[0..2].try_into().unwrap()),
             outputs: u16::from_le_bytes(data[2..4].try_into().unwrap()),
             max_regs: u16::from_le_bytes(data[4..6].try_into().unwrap()),
             holes: u16::from_le_bytes(data[6..8].try_into().unwrap()),
             jumps: u16::from_le_bytes(data[8..10].try_into().unwrap()),
+            signature: String::from_utf8_lossy(&data[10..]).to_string(),
         })
     }
 }

@@ -14,7 +14,7 @@ use darling::{FromMeta, ast::NestedMeta};
 use itertools::Itertools;
 use once_cell::unsync::OnceCell;
 use proc_macro2::{Span, TokenStream};
-use quote::quote;
+use quote::{ToTokens, quote};
 use smallvec::SmallVec;
 use syn::{ItemFn, spanned::Spanned};
 
@@ -279,7 +279,9 @@ impl StencilFamily {
             &format!("__patchouly__{}__meta", self.name),
             self.name.span(),
         );
-        let mut bytes = [0u8; 10];
+        let meta_sig = self.orig.sig.to_token_stream().to_string();
+        let len = 10 + meta_sig.len();
+        let mut bytes = vec![0; len];
         bytes[0..2].copy_from_slice(&self.sig.inputs.to_le_bytes());
         let outputs = if self.options.returns {
             0
@@ -291,16 +293,17 @@ impl StencilFamily {
         bytes[6..8].copy_from_slice(&(self.sig.hole_names.len() as u16).to_le_bytes());
         let targets = if self.sig.target_enum.is_some() {
             self.sig.target_names.len() as u16
-        } else if self.options.returns {
+        } else if self.options.returns || self.options.trampoline {
             0
         } else {
             1
         };
         bytes[8..10].copy_from_slice(&targets.to_le_bytes());
+        bytes[10..len].copy_from_slice(meta_sig.as_bytes());
         let lit = syn::LitByteStr::new(&bytes, Span::call_site());
         quote! {
             #[unsafe(no_mangle)]
-            pub static #meta_name: [u8; 10] = *#lit;
+            pub static #meta_name: [u8; #len] = *#lit;
         }
     }
 
@@ -627,7 +630,10 @@ impl Regs {
 #[cfg(test)]
 mod test {
     use pretty_assertions::assert_eq;
-    use syn::{LitStr, parse::{Parse, Parser}};
+    use syn::{
+        LitStr,
+        parse::{Parse, Parser},
+    };
 
     use super::*;
 
@@ -658,7 +664,8 @@ mod test {
             },
             quote! {
                 #[unsafe(no_mangle)]
-                pub static __patchouly__add1__meta: [u8; 10] = *b"\x01\0\x01\0\x01\0\0\0\x01\0";
+                pub static __patchouly__add1__meta: [u8; 38usize] =
+                    *b"\x01\0\x01\0\x01\0\0\0\x01\0fn add1 (a : usize) -> usize";
                 #[inline(always)]
                 pub fn add1(a: usize) -> usize { a + 1 }
                 #[unsafe(no_mangle)]
@@ -695,8 +702,8 @@ mod test {
             },
             quote! {
                 #[unsafe(no_mangle)]
-                pub static __patchouly____long_jump__meta: [u8; 10] =
-                    *b"\0\0\0\0\x02\0\x01\0\0\0";
+                pub static __patchouly____long_jump__meta: [u8; 48usize] =
+                    *b"\0\0\0\0\x02\0\x01\0\0\0fn __long_jump (addr : usize) -> usize";
                 #[inline(always)]
                 pub fn __long_jump(addr: usize) -> usize { addr }
                 #[unsafe(no_mangle)]
@@ -739,7 +746,8 @@ mod test {
             },
             quote! {
                 #[unsafe(no_mangle)]
-                pub static __patchouly__add2__meta: [u8; 10] = *b"\x02\0\x01\0\x01\0\0\0\x01\0";
+                pub static __patchouly__add2__meta: [u8; 50usize] =
+                    *b"\x02\0\x01\0\x01\0\0\0\x01\0fn add2 (a : usize , b : usize) -> usize";
                 #[inline(always)]
                 pub fn add2(a: usize, b: usize) -> usize { a + b }
                 #[unsafe(no_mangle)]
@@ -771,7 +779,8 @@ mod test {
             },
             quote! {
                 #[unsafe(no_mangle)]
-                pub static __patchouly__consume__meta: [u8; 10] = *b"\x01\0\0\0\x02\0\0\0\x01\0";
+                pub static __patchouly__consume__meta: [u8; 33usize] =
+                    *b"\x01\0\0\0\x02\0\0\0\x01\0fn consume (_a : usize)";
                 #[inline(always)]
                 pub fn consume(_a: usize) {}
                 #[unsafe(no_mangle)]
@@ -808,7 +817,8 @@ mod test {
             },
             quote! {
                 #[unsafe(no_mangle)]
-                pub static __patchouly__zero__meta: [u8; 10] = *b"\0\0\x01\0\x02\0\0\0\x01\0";
+                pub static __patchouly__zero__meta: [u8; 29usize] =
+                    *b"\0\0\x01\0\x02\0\0\0\x01\0fn zero () -> usize";
                 #[inline(always)]
                 pub fn zero() -> usize {
                     0
@@ -847,7 +857,8 @@ mod test {
             },
             quote! {
                 #[unsafe(no_mangle)]
-                pub static __patchouly__iconst__meta: [u8; 10] = *b"\0\0\x01\0\x01\0\x01\0\x01\0";
+                pub static __patchouly__iconst__meta: [u8; 40usize] =
+                    *b"\0\0\x01\0\x01\0\x01\0\x01\0fn iconst (c : usize) -> usize";
                 #[inline(always)]
                 pub fn iconst(c: usize) -> usize { c }
                 #[unsafe(no_mangle)]
@@ -890,7 +901,8 @@ mod test {
             },
             quote! {
                 #[unsafe(no_mangle)]
-                pub static __patchouly__if_else__meta: [u8; 10] = *b"\x01\0\0\0\x01\0\0\0\x02\0";
+                pub static __patchouly__if_else__meta: [u8; 107usize] =
+                    *b"\x01\0\0\0\x01\0\0\0\x02\0fn if_else (a : usize , then : if_else__targets , or_else : if_else__targets) -> if_else__targets";
                 pub enum if_else__targets {
                     target0_then,
                     target1_or_else,
@@ -935,7 +947,8 @@ mod test {
             },
             quote! {
                 #[unsafe(no_mangle)]
-                pub static __patchouly__returns__meta: [u8; 10] = *b"\x01\0\0\0\x02\0\0\0\0\0";
+                pub static __patchouly__returns__meta: [u8; 41usize] =
+                    *b"\x01\0\0\0\x02\0\0\0\0\0fn returns (a : usize) -> usize";
                 #[inline(always)]
                 pub fn returns(a: usize) -> usize { a }
                 #[unsafe(no_mangle)]

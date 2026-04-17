@@ -104,8 +104,10 @@ const _: [u8; 1] = [0; (cfg!(target_endian = "little") == {}) as usize];"#,
 
             out_rs.write_fmt(format_args!(
                 r#"
+#[doc = {}]
 pub const {}_{}: StencilFamily<{}, {}, {}, {}, {}> = StencilFamily {{
     relocation_data: &["#,
+                escape_string(&stencil.doc),
                 lib_upper,
                 name.to_uppercase(),
                 stencil.IN,
