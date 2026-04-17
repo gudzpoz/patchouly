@@ -276,10 +276,11 @@ mod tests {
         block.ret_v(&stencils::CALC_RET, v).unwrap();
         let add42 = block.finalize_typed::<RawFn1<()>>().unwrap();
         eprintln!("{:?}", add42.program());
-        for _ in 0..10000 {
-            let v = Box::new(vec![1usize; 1000000]);
+        for i in 0..1000 {
+            let mut v = Box::new(vec![0usize; 10_000_000]);
+            v[..i].fill(1);
             let result = unsafe { add42.entry() }(&mut (), BoxedVec(v).into());
-            assert_eq!(1000000, result);
+            assert_eq!(i, result);
         }
     }
 

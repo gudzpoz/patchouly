@@ -39,6 +39,12 @@ pub fn setup(args: Punctuated<MetaNameValue, Comma>) -> TokenStream {
         pub fn __move(v: usize) -> usize {
             v
         }
+
+        /// A raw helper stencil used by the JIT to long-jump to runtime functions.
+        #[::patchouly_macros::stencil(trampoline, abi = "Rust", #(#extra_args,),*)]
+        pub fn __long_jump(#[hole] addr: usize) -> usize {
+            addr
+        }
     }
 }
 

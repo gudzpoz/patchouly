@@ -106,14 +106,12 @@ fn if_zero(
     }
 }
 #[stencil(n = 4)]
-fn if_zero_unchecked(
-    mut dp: Ptr,
-    _len: usize,
-    i: usize,
-    #[target] then: _,
-    #[target] or_else: _,
-) {
-    if *unsafe { dp.get_mut(i) } == 0 { then } else { or_else }
+fn if_zero_unchecked(mut dp: Ptr, _len: usize, i: usize, #[target] then: _, #[target] or_else: _) {
+    if *unsafe { dp.get_mut(i) } == 0 {
+        then
+    } else {
+        or_else
+    }
 }
 
 #[stencil(n = 4)]

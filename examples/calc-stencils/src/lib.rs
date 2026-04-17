@@ -2,7 +2,7 @@
 #![feature(explicit_tail_calls)]
 #![feature(rust_preserve_none_cc)]
 
-use example_commons::{Stack, StackAllocFn};
+use example_commons::{BoxedVec, Stack, StackAllocFn};
 use patchouly_core::StencilStack;
 
 #[macro_use]
@@ -40,4 +40,9 @@ fn ret(a: usize) -> usize {
 #[stencil]
 fn if_eq(a: usize, #[hole] c: usize, #[target] then: usize, #[target] or_else: usize) {
     if a == c { then } else { or_else }
+}
+
+#[stencil]
+fn vec_sum(v: BoxedVec) -> usize {
+    v.0.iter().sum()
 }

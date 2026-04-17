@@ -270,6 +270,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
                 &stack_vars,
                 holes,
                 jumps.as_slice(),
+                self.library.rt_symbols,
             );
             if let Some(delayed) = delayed {
                 if let DelayedTarget::Next = delayed.target() {
@@ -290,11 +291,17 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
     }
 
     fn final_len(&self) -> usize {
-        if self.constants.is_empty() {
-            self.code.len()
+        let runtime_trampolines = self.runtime_trampoline_symbols();
+        let code_len = self.code.len()
+            + runtime_trampolines.len()
+                * self
+                    .long_jump_stencil()
+                    .map_or(0, |stencil| stencil.code_len as usize);
+        let constant_count = self.constants.len() + runtime_trampolines.len();
+        if constant_count == 0 {
+            code_len
         } else {
-            self.code.len().next_multiple_of(size_of::<usize>())
-                + self.constants.len() * size_of::<usize>()
+            code_len.next_multiple_of(size_of::<usize>()) + constant_count * size_of::<usize>()
         }
     }
 
@@ -314,11 +321,44 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
         }
 
         let code = &mut map[block_base_offset..];
+        let block_base = base + block_base_offset;
+        let runtime_trampolines = self.runtime_trampoline_symbols();
+        let mut trampoline_addresses = vec![0usize; self.library.rt_symbols.len()];
+        let mut trampoline_relocations = Vec::with_capacity(runtime_trampolines.len());
+        let mut current = self.code.len();
+
         code[..self.code.len()].copy_from_slice(&self.code);
-        let constant_base = if self.constants.is_empty() {
-            code.len()
+        if !runtime_trampolines.is_empty() {
+            let long_jump = self
+                .long_jump_stencil()
+                .ok_or(PatchError::StencilNotFound)?;
+            for (i, symbol) in runtime_trampolines.iter().copied().enumerate() {
+                let offset = current;
+                let stencil_code = long_jump.code(self.library.code);
+                let next = current + stencil_code.len();
+                code[current..next].copy_from_slice(stencil_code);
+                trampoline_addresses[symbol as usize] = block_base + offset;
+
+                for relocation in long_jump.relocations(self.library.long_jump) {
+                    if relocation.is_invalid() {
+                        break;
+                    }
+                    if let Some(PatchInfo::Hole(0)) = relocation.patch_info() {
+                        trampoline_relocations.push(DelayedRelocation::constant(
+                            offset,
+                            *relocation,
+                            (self.constants.len() + i) as u16,
+                        ));
+                    }
+                }
+                current = next;
+            }
+        }
+
+        let constant_base = if self.constants.is_empty() && runtime_trampolines.is_empty() {
+            current
         } else {
-            let base = self.code.len().next_multiple_of(size_of::<usize>());
+            let base = current.next_multiple_of(size_of::<usize>());
             let mut start = base;
             for constant in &self.constants {
                 let bytes = &constant.to_ne_bytes();
@@ -326,11 +366,16 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
                 code[start..next].copy_from_slice(bytes);
                 start = next;
             }
+            for symbol in runtime_trampolines.iter().copied() {
+                let bytes = &(self.library.rt_symbols[symbol as usize] as usize).to_ne_bytes();
+                let next = start + bytes.len();
+                code[start..next].copy_from_slice(bytes);
+                start = next;
+            }
             base
         };
 
-        let block_base = base + block_base_offset;
-        for relocation in &self.relocations {
+        for relocation in self.relocations.iter().chain(trampoline_relocations.iter()) {
             let target = match relocation.target() {
                 DelayedTarget::Block(block) => {
                     let target_offset = blocks
@@ -341,6 +386,7 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
                 DelayedTarget::Constant(index) => {
                     block_base + constant_base + index as usize * size_of::<usize>()
                 }
+                DelayedTarget::Runtime(symbol) => trampoline_addresses[symbol as usize],
                 DelayedTarget::Next => unreachable!(),
             };
             relocation.apply(code, relocation.resolve(block_base, target));
@@ -366,5 +412,25 @@ impl<const MAX_REGS: usize> PatchBlock<MAX_REGS> {
     #[cfg(feature = "std")]
     pub fn finalize_typed<Sig: EntrypointSignature>(self) -> Result<TypedProgram<Sig>, PatchError> {
         self.finalize().map(Program::into_typed)
+    }
+
+    fn runtime_trampoline_symbols(&self) -> Vec<u16> {
+        let mut symbols = vec![];
+        for relocation in &self.relocations {
+            let DelayedTarget::Runtime(symbol) = relocation.target() else {
+                continue;
+            };
+            if !symbols.contains(&symbol) {
+                symbols.push(symbol);
+            }
+        }
+        symbols
+    }
+
+    fn long_jump_stencil(&self) -> Option<&'static Stencil<0, 0, 1, 0>> {
+        self.library
+            .long_jump
+            .select(&[], &[], &[usize::MAX])
+            .map(|selected| selected.stencil)
     }
 }

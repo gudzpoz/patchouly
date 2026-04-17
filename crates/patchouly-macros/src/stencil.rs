@@ -25,6 +25,7 @@ use crate::perm::RegPermutation;
 struct FamilyOptions {
     returns: bool,
     abi: Option<syn::LitStr>,
+    trampoline: bool,
     #[darling(rename = "n")]
     registers: u16,
 }
@@ -41,6 +42,8 @@ impl FamilyOptions {
     }
 }
 
+const BUILTIN_FUNCTIONS: &[&str] = &["__empty", "__move", "__long_jump"];
+
 #[derive(Debug)]
 pub struct StencilFamily {
     name: String,
@@ -52,7 +55,7 @@ impl syn::parse::Parse for StencilFamily {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let mut f: syn::ItemFn = input.parse()?;
         let name = f.sig.ident.to_string();
-        if name.contains("__") && name != "__empty" && name != "__move" {
+        if name.contains("__") && !BUILTIN_FUNCTIONS.contains(&name.as_str()) {
             return Err(syn::Error::new_spanned(
                 f.sig.ident,
                 "please use a name without __",
@@ -228,6 +231,16 @@ impl StencilFamily {
     }
 
     pub fn expand(mut self) -> TokenStream {
+        if self.options.trampoline {
+            if self.sig.inputs > 0 {
+                return syn::Error::new_spanned(
+                    self.orig.sig,
+                    "trampolines cannot have arguments or return values",
+                )
+                .to_compile_error();
+            }
+            self.sig.outputs = 0;
+        }
         let perm = RegPermutation::new(
             self.sig.inputs,
             if self.options.returns {
@@ -381,6 +394,8 @@ impl StencilFamily {
             quote! { target }
         } else if rets.len() == 1 {
             quote!(#(#rets),*)
+        } else if self.options.trampoline {
+            quote! { __next }
         } else {
             quote! { (#(#rets),*) }
         };
@@ -440,7 +455,7 @@ impl StencilFamily {
     }
 
     fn generate_next(
-        &self,
+        &mut self,
         arg_list: &TokenStream,
         rets: &[syn::Ident],
         sig: &StencilSignature,
@@ -484,13 +499,25 @@ impl StencilFamily {
                 },
             ]
         } else {
+            let f = if self.options.trampoline {
+                let abi = self.options.abi();
+                quote! {
+                    ::core::mem::transmute::<
+                        usize, extern #abi fn(_: &mut Stack #arg_list),
+                    >(__next)
+                }
+            } else {
+                quote!(imp::copy_and_patch_next)
+            };
             [
                 quote! {()},
-                quote! {
-                    pub fn copy_and_patch_next(stack: &mut super::Stack #arg_list);
+                if self.options.trampoline {
+                    quote!()
+                } else {
+                    quote! { pub fn copy_and_patch_next(stack: &mut super::Stack #arg_list); }
                 },
                 quote! {
-                    become imp::copy_and_patch_next(stack #(, #next_call_args.into())*);
+                    become #f(stack #(, #next_call_args.into())*);
                 },
             ]
         }
@@ -600,7 +627,7 @@ impl Regs {
 #[cfg(test)]
 mod test {
     use pretty_assertions::assert_eq;
-    use syn::parse::{Parse, Parser};
+    use syn::{LitStr, parse::{Parse, Parser}};
 
     use super::*;
 
@@ -645,6 +672,56 @@ mod test {
                     let stack1 = add1(stack0.into());
                     stack.set(imp::add1__stack1.as_ptr() as usize, stack1.into());
                     become imp::copy_and_patch_next(stack);
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn test_raw() {
+        fn assert_raw_expansion(regs: u16, before: TokenStream, after: TokenStream) {
+            let mut stencil: StencilFamily = syn::parse2(before).unwrap();
+            stencil.options.registers = regs;
+            stencil.options.trampoline = true;
+            stencil.options.abi = Some(LitStr::new("Rust", Span::call_site()));
+            let expanded = stencil.expand();
+            assert_eq!(prettify(expanded), prettify(after));
+        }
+
+        assert_raw_expansion(
+            2,
+            quote! {
+                pub fn __long_jump(#[hole] addr: usize) -> usize { addr }
+            },
+            quote! {
+                #[unsafe(no_mangle)]
+                pub static __patchouly____long_jump__meta: [u8; 10] =
+                    *b"\0\0\0\0\x02\0\x01\0\0\0";
+                #[inline(always)]
+                pub fn __long_jump(addr: usize) -> usize { addr }
+                #[unsafe(no_mangle)]
+                pub unsafe extern "Rust" fn __patchouly____long_jump____(stack: &mut Stack, pass1: usize) -> () {
+                    mod imp { unsafe extern "Rust" {
+                        pub static __long_jump__hole0: [u8; 0x10000];
+                    } }
+                    let hole0 = imp::__long_jump__hole0.as_ptr() as usize;
+                    let __next = __long_jump(hole0.into());
+                    become ::core::mem::transmute::<
+                        usize,
+                        extern "Rust" fn(_: &mut Stack, pass1: usize),
+                    >(__next)(stack, pass1.into());
+                }
+                #[unsafe(no_mangle)]
+                pub unsafe extern "Rust" fn __patchouly____long_jump______wide(stack: &mut Stack, pass1: usize) -> () {
+                    mod imp { unsafe extern "Rust" {
+                        pub static __long_jump__hole0__wide: usize;
+                    } }
+                    let hole0 = unsafe { imp::__long_jump__hole0__wide };
+                    let __next = __long_jump(hole0.into());
+                    become ::core::mem::transmute::<
+                        usize,
+                        extern "Rust" fn(_: &mut Stack, pass1: usize),
+                    >(__next)(stack, pass1.into());
                 }
             },
         );

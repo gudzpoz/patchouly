@@ -166,6 +166,7 @@ pub enum JumpTarget {
 pub enum DelayedTarget {
     Block(u16),
     Constant(u16),
+    Runtime(u16),
     Next,
 }
 
@@ -200,7 +201,15 @@ impl DelayedRelocation {
                 });
             }
             PatchInfo::Runtime(i) => {
-                rt_symbols[i as usize] as usize
+                let value = rt_symbols[i as usize] as usize;
+                if !relocation.supports_value(value) {
+                    return Some(DelayedRelocation {
+                        offset,
+                        relocation,
+                        target: DelayedTarget::Runtime(i),
+                    });
+                }
+                value
             }
         };
 
@@ -225,6 +234,14 @@ impl DelayedRelocation {
             offset,
             relocation,
             target: DelayedTarget::Next,
+        }
+    }
+
+    pub fn runtime(offset: usize, relocation: Relocation, symbol: u16) -> Self {
+        Self {
+            offset,
+            relocation,
+            target: DelayedTarget::Runtime(symbol),
         }
     }
 
